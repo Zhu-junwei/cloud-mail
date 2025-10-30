@@ -25,12 +25,13 @@ jobs:
           git remote add upstream https://github.com/eoao/cloud-mail.git || true
           git fetch upstream
 
-      - name: Check for changes in upstream
+      - name: Check for changes in upstream (ignoring sync.yml)
         id: check_changes
         run: |
           git fetch upstream
-          UPSTREAM_DIFF=$(git diff --name-only upstream/main..main)
-          echo "Upstream changes: $UPSTREAM_DIFF"
+          # 排除 .github/workflows/sync.yml 文件
+          UPSTREAM_DIFF=$(git diff --name-only upstream/main..main | grep -v '.github/workflows/sync.yml')
+          echo "Upstream changes (excluding sync.yml): $UPSTREAM_DIFF"
           echo "has_changes=$(if [ -z "$UPSTREAM_DIFF" ]; then echo false; else echo true; fi)" >> $GITHUB_ENV
 
       - name: Reset fork to upstream (exclude workflow)
