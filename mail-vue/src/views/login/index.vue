@@ -47,6 +47,12 @@
           <el-button class="btn" v-if="settingStore.settings.linuxdoSwitch"  style="margin-top: 10px"  @click="linuxDoLogin">
             <el-avatar src="/image/linuxdo.webp" :size="18" style="margin-right: 10px" />LinuxDo
           </el-button>
+          <div v-if="anonymousReceiveEnabled" class="public-inbox-link">
+            <span>{{ $t('anonymousReceiveLoginHint') }}</span>
+            <el-link type="primary" :underline="false" @click="openPublicInbox">
+              {{ $t('anonymousReceiveLoginLink') }}
+            </el-link>
+          </div>
         </div>
         <div v-show="show !== 'login'">
           <el-input :class="!hideLoginDomain ? 'email-input' : ''" v-model="registerForm.email" type="text" :placeholder="$t('emailAccount')"
@@ -244,6 +250,7 @@ const loginDarkenFactor = computed(() => {
 })
 
 const hideLoginDomain = computed(() => settingStore.settings.loginDomain === 1)
+const anonymousReceiveEnabled = computed(() => settingStore.settings.anonymousReceive === 0)
 
 const background = computed(() => {
   const bg = settingStore.settings.background
@@ -277,6 +284,10 @@ function linuxDoLogin() {
   const redirectUri = encodeURIComponent(settingStore.settings.linuxdoCallbackUrl)
   window.location.href =
       `https://connect.linux.do/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid+profile+email`
+}
+
+function openPublicInbox() {
+  router.push('/public-inbox')
 }
 
 linuxDoGetUser();
@@ -667,6 +678,16 @@ function submitRegister() {
       color: var(--login-switch-color);
       cursor: pointer;
     }
+  }
+
+  .public-inbox-link {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
   }
 
   :deep(.el-input__wrapper) {

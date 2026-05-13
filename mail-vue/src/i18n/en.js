@@ -290,6 +290,19 @@ const en = {
     popUp: 'Pop Up',
     noRecipientTitle: 'No Recipient',
     noRecipientDesc: 'Emails can be received even without a registered email address',
+    anonymousReceive: 'Anonymous Inbox',
+    anonymousReceiveDesc: 'Allow unauthenticated users to view recent emails by address',
+    anonymousReceiveCount: 'Latest emails',
+    anonymousReceiveCountDesc: 'Number of recent emails visible to anonymous users; 0 hides emails and -1 is unlimited',
+    anonymousReceiveRefresh: 'Anonymous refresh',
+    anonymousReceiveRefreshDesc: 'Auto-refresh interval for the public inbox. Default is 10s',
+    anonymousReceiveBlacklist: 'Anonymous access protection',
+    anonymousReceiveBlacklistDesc: 'Matched mailboxes cannot be accessed anonymously; exact addresses and * / ? wildcard patterns are supported',
+    anonymousReceiveBlacklistInputDesc: 'Enter addresses or wildcard patterns, separated with commas',
+    anonymousReceiveLoginHint: 'Only checking inbox?',
+    anonymousReceiveLoginLink: 'Open anonymous inbox',
+    anonymousReceiveClosed: 'Anonymous inbox is disabled',
+    anonymousReceiveBlocked: 'This mailbox is blocked from anonymous access',
     preview: 'Preview',
     help: 'Help',
     document: 'Document',
@@ -337,7 +350,15 @@ const en = {
     searchUser: 'Search by user',
     searchEmail: 'Search by Email',
     searchSender: 'Search by Sender',
-    userEmail: 'Email Address'
+    userEmail: 'Email Address',
+    publicInboxTitle: 'Public Inbox',
+    publicInboxPlaceholder: 'Enter email',
+    publicInboxOpen: 'Open Inbox',
+    publicInboxRandom: 'Random email',
+    publicInboxLoadMore: 'Load more',
+    publicInboxEmptyGuide: 'Enter an email address to view messages',
+    publicInboxSelectMessage: 'Select a message to view its content',
+    publicInboxEmptyHistory: 'No search history'
 }
 
 export default en

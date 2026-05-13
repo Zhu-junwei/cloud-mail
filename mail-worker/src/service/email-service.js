@@ -22,6 +22,7 @@ import domainUtils from '../utils/domain-uitls';
 import account from "../entity/account";
 import { att } from '../entity/att';
 import telegramService from './telegram-service';
+import verifyUtils from '../utils/verify-utils';
 
 const emailService = {
 
@@ -899,6 +900,315 @@ const emailService = {
 		await this.emailAddAtt(c, list);
 
 		return list;
+	},
+
+	publicInboxEmail(emailAddress) {
+		const address = (emailAddress || '').trim().toLowerCase();
+
+		if (!verifyUtils.isEmail(address)) {
+			throw new BizError(t('notEmail'));
+		}
+
+		return address;
+	},
+
+	publicInboxBlockRules(setting) {
+		return (setting.anonymousReceiveBlacklist || '')
+			.split(',')
+			.map(item => item.trim().toLowerCase())
+			.filter(Boolean);
+	},
+
+	publicInboxWildcardToRegExp(rule) {
+		return new RegExp('^' + rule
+			.replace(/[|\\{}()[\]^$+.,]/g, '\\$&')
+			.replace(/\*/g, '.*')
+			.replace(/\?/g, '.') + '$', 'i');
+	},
+
+	publicInboxRuleMatches(address, rule) {
+		if (!rule.includes('*') && !rule.includes('?')) {
+			return address === rule;
+		}
+		return this.publicInboxWildcardToRegExp(rule).test(address);
+	},
+
+	publicInboxSqlLikePattern(rule) {
+		return rule
+			.replace(/\\/g, '\\\\')
+			.replace(/%/g, '\\%')
+			.replace(/_/g, '\\_')
+			.replace(/\*/g, '%')
+			.replace(/\?/g, '_');
+	},
+
+	async publicInboxAccess(c, address) {
+		const setting = await settingService.query(c);
+
+		if (Number(setting.anonymousReceive) !== settingConst.anonymousReceive.OPEN) {
+			throw new BizError(t('anonymousReceiveClosed'), 403);
+		}
+
+		if (this.publicInboxBlockRules(setting).some(rule => this.publicInboxRuleMatches(address, rule))) {
+			return { limit: 0, blocked: true };
+		}
+
+		let limit = Number(setting.anonymousReceiveCount);
+		if (limit === -1) {
+			return { limit };
+		}
+
+		if (Number.isNaN(limit)) {
+			limit = 10;
+		}
+
+		if (limit < 0) {
+			limit = -1;
+		}
+		if (limit > 50) {
+			limit = 50;
+		}
+
+		return { limit };
+	},
+
+	publicInboxWhere(address) {
+		return and(
+			sql`${email.toEmail} COLLATE NOCASE = ${address}`,
+			eq(email.type, emailConst.type.RECEIVE),
+			eq(email.isDel, isDel.NORMAL),
+			ne(email.status, emailConst.status.SAVING),
+			or(
+				eq(email.accountId, 0),
+				and(
+					sql`${account.email} COLLATE NOCASE = ${address}`,
+					eq(account.isDel, isDel.NORMAL)
+				)
+			)
+		);
+	},
+
+	async publicInboxScope(c, address) {
+		const { limit, blocked = false } = await this.publicInboxAccess(c, address);
+
+		if (blocked || limit === 0) {
+			return {
+				limit,
+				blocked,
+				cutoffEmailId: 0,
+				total: 0
+			};
+		}
+
+		if (limit === -1) {
+			const totalRow = await orm(c).select({ total: count() }).from(email)
+				.leftJoin(account, eq(account.accountId, email.accountId))
+				.where(this.publicInboxWhere(address))
+				.get();
+
+			return {
+				limit,
+				cutoffEmailId: 0,
+				total: totalRow.total
+			};
+		}
+
+		const latestList = await orm(c).select({
+			emailId: email.emailId
+		}).from(email)
+			.leftJoin(account, eq(account.accountId, email.accountId))
+			.where(this.publicInboxWhere(address))
+			.orderBy(desc(email.emailId))
+			.limit(limit)
+			.all();
+
+		if (latestList.length === 0) {
+			return {
+				limit,
+				cutoffEmailId: 0,
+				total: 0
+			};
+		}
+
+		const cutoffEmailId = latestList.at(-1).emailId;
+		const totalRow = await orm(c).select({ total: count() }).from(email)
+			.leftJoin(account, eq(account.accountId, email.accountId))
+			.where(and(this.publicInboxWhere(address), gte(email.emailId, cutoffEmailId)))
+			.get();
+
+		return {
+			limit,
+			cutoffEmailId,
+			total: totalRow.total
+		};
+	},
+
+	async publicInboxList(c, params) {
+		let { address, emailId, timeSort, size } = params;
+		address = this.publicInboxEmail(address);
+		const scope = await this.publicInboxScope(c, address);
+
+		if (scope.blocked || scope.limit === 0) {
+			return {
+				list: [],
+				total: 0,
+				latestEmail: { emailId: 0 }
+			};
+		}
+
+		const maxSize = scope.limit > 0 ? scope.limit : 50;
+		size = Number(size);
+		if (!size || size < 1) {
+			size = maxSize;
+		}
+		if (size > maxSize) {
+			size = maxSize;
+		}
+		emailId = Number(emailId);
+		timeSort = Number(timeSort);
+
+		if (!emailId) {
+			emailId = timeSort ? 0 : 9999999999;
+		}
+
+		const conditions = and(
+			this.publicInboxWhere(address),
+			gte(email.emailId, scope.cutoffEmailId || 0),
+			timeSort ? gt(email.emailId, emailId) : lt(email.emailId, emailId)
+		);
+
+		const query = orm(c).select({
+			emailId: email.emailId,
+			sendEmail: email.sendEmail,
+			name: email.name,
+			subject: email.subject,
+			code: email.code,
+			text: email.text,
+			toEmail: email.toEmail,
+			toName: email.toName,
+			recipient: email.recipient,
+			type: email.type,
+			status: email.status,
+			unread: email.unread,
+			createTime: email.createTime,
+			isDel: email.isDel
+		}).from(email).leftJoin(account, eq(account.accountId, email.accountId)).where(conditions);
+
+		if (timeSort) {
+			query.orderBy(asc(email.emailId));
+		} else {
+			query.orderBy(desc(email.emailId));
+		}
+
+		const list = await query.limit(size).all();
+		const latestEmail = await orm(c).select({
+			emailId: email.emailId
+		}).from(email)
+			.leftJoin(account, eq(account.accountId, email.accountId))
+			.where(and(this.publicInboxWhere(address), gte(email.emailId, scope.cutoffEmailId || 0)))
+			.orderBy(desc(email.emailId)).limit(1).get();
+
+		await this.emailAddAtt(c, list);
+
+		return {
+			list,
+			total: scope.total,
+			latestEmail: latestEmail || { emailId: 0 }
+		};
+	},
+
+	async publicInboxLatest(c, params) {
+		const address = this.publicInboxEmail(params.address);
+		const scope = await this.publicInboxScope(c, address);
+		const emailId = Number(params.emailId) || 0;
+
+		if (scope.blocked || scope.limit === 0) {
+			return [];
+		}
+
+		const query = orm(c).select({
+			emailId: email.emailId,
+			sendEmail: email.sendEmail,
+			name: email.name,
+			subject: email.subject,
+			code: email.code,
+			text: email.text,
+			toEmail: email.toEmail,
+			toName: email.toName,
+			recipient: email.recipient,
+			type: email.type,
+			status: email.status,
+			unread: email.unread,
+			createTime: email.createTime,
+			isDel: email.isDel
+		}).from(email)
+			.leftJoin(account, eq(account.accountId, email.accountId))
+			.where(and(this.publicInboxWhere(address), gte(email.emailId, scope.cutoffEmailId || 0), gt(email.emailId, emailId)))
+			.orderBy(desc(email.emailId));
+
+		const list = await (scope.limit > 0 ? query.limit(scope.limit) : query).all();
+
+		await this.emailAddAtt(c, list);
+
+		return list;
+	},
+
+	async publicInboxRandom(c) {
+		const setting = await settingService.query(c);
+
+		if (Number(setting.anonymousReceive) !== settingConst.anonymousReceive.OPEN) {
+			throw new BizError(t('anonymousReceiveClosed'), 403);
+		}
+
+		const conditions = [eq(account.isDel, isDel.NORMAL)];
+		for (const rule of this.publicInboxBlockRules(setting)) {
+			if (rule.includes('*') || rule.includes('?')) {
+				conditions.push(sql`${account.email} COLLATE NOCASE NOT LIKE ${this.publicInboxSqlLikePattern(rule)} ESCAPE '\\'`);
+			} else {
+				conditions.push(sql`${account.email} COLLATE NOCASE != ${rule}`);
+			}
+		}
+
+		const row = await orm(c).select({
+			address: account.email
+		}).from(account)
+			.where(and(...conditions))
+			.orderBy(sql`RANDOM()`)
+			.limit(1)
+			.get();
+
+		return {
+			address: row?.address || ''
+		};
+	},
+
+	async publicInboxDetail(c, params) {
+		const address = this.publicInboxEmail(params.address);
+		const scope = await this.publicInboxScope(c, address);
+		const emailId = Number(params.emailId);
+
+		if (scope.blocked || scope.limit === 0) {
+			return null;
+		}
+
+		if (!emailId) {
+			throw new BizError(t('notExistEmailReply'));
+		}
+
+		const emailRow = await orm(c).select({
+			...email
+		}).from(email)
+			.leftJoin(account, eq(account.accountId, email.accountId))
+			.where(and(this.publicInboxWhere(address), gte(email.emailId, scope.cutoffEmailId || 0), eq(email.emailId, emailId)))
+			.get();
+
+		if (!emailRow) {
+			throw new BizError(t('notExistEmailReply'), 404);
+		}
+
+		await this.emailAddAtt(c, [emailRow]);
+
+		return emailRow;
 	},
 
 	async emailAddAtt(c, list) {
