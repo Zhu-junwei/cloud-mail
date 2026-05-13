@@ -55,6 +55,14 @@ const routes = [
 
     },
     {
+        path: '/public-inbox',
+        name: 'publicInbox',
+        component: () => import('@/views/public-inbox/index.vue'),
+        meta: {
+            public: true
+        }
+    },
+    {
         path: '/login',
         name: 'login',
         component: () => import('@/views/login/index.vue')
@@ -99,6 +107,11 @@ router.beforeEach((to, from, next) => {
     }
 
     const token = localStorage.getItem('token')
+
+    if (to.meta.public) {
+        next()
+        return
+    }
 
     if (!token && to.name !== 'login') {
         return next({name: 'login'})

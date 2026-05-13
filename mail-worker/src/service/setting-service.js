@@ -1,7 +1,7 @@
 import KvConst from '../const/kv-const';
 import setting from '../entity/setting';
 import orm from '../entity/orm';
-import {verifyRecordType} from '../const/entity-const';
+import {settingConst, verifyRecordType} from '../const/entity-const';
 import fileUtils from '../utils/file-utils';
 import r2Service from './r2-service';
 import constant from '../const/constant';
@@ -12,20 +12,60 @@ import userContext from '../security/user-context';
 
 const settingService = {
 
+	async ensureAnonymousReceiveColumns(c) {
+		const statements = [
+			`ALTER TABLE setting ADD COLUMN anonymous_receive INTEGER NOT NULL DEFAULT 0;`,
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_count INTEGER NOT NULL DEFAULT 10;`,
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_refresh INTEGER NOT NULL DEFAULT 10;`,
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_blacklist TEXT NOT NULL DEFAULT '';`
+		];
+
+		for (const sql of statements) {
+			try {
+				await c.env.db.prepare(sql).run();
+			} catch (e) {
+				if (!/duplicate column name|already exists/i.test(e.message || '')) {
+					throw e;
+				}
+			}
+		}
+	},
+
+	normalize(settingRow) {
+		if (!settingRow) {
+			return settingRow;
+		}
+		settingRow.anonymousReceive = settingRow.anonymousReceive ?? settingConst.anonymousReceive.OPEN;
+		settingRow.anonymousReceiveCount = settingRow.anonymousReceiveCount ?? 10;
+		settingRow.anonymousReceiveRefresh = settingRow.anonymousReceiveRefresh ?? 10;
+		settingRow.anonymousReceiveBlacklist = settingRow.anonymousReceiveBlacklist ?? '';
+		return settingRow;
+	},
+
 	async refresh(c) {
-		const settingRow = await orm(c).select().from(setting).get();
+		let settingRow;
+		try {
+			settingRow = await orm(c).select().from(setting).get();
+		} catch (e) {
+			if (!/anonymous_receive/i.test(e.message || '')) {
+				throw e;
+			}
+			await this.ensureAnonymousReceiveColumns(c);
+			settingRow = await orm(c).select().from(setting).get();
+		}
 		settingRow.resendTokens = JSON.parse(settingRow.resendTokens);
-		c.set('setting', settingRow);
-		await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
+		const normalized = this.normalize(settingRow);
+		c.set('setting', normalized);
+		await c.env.kv.put(KvConst.SETTING, JSON.stringify(normalized));
 	},
 
 	async query(c) {
 
 		if (c.get?.('setting')) {
-			return c.get('setting')
+			return this.normalize(c.get('setting'))
 		}
 
-		const setting = await c.env.kv.get(KvConst.SETTING, { type: 'json' });
+		const setting = this.normalize(await c.env.kv.get(KvConst.SETTING, { type: 'json' }));
 
 		if (!setting) {
 			throw new BizError('数据库未初始化 Database not initialized.');
@@ -124,6 +164,15 @@ const settingService = {
 	},
 
 	async set(c, params) {
+		if (
+			params.anonymousReceive !== undefined ||
+			params.anonymousReceiveCount !== undefined ||
+			params.anonymousReceiveRefresh !== undefined ||
+			params.anonymousReceiveBlacklist !== undefined
+		) {
+			await this.ensureAnonymousReceiveColumns(c);
+		}
+
 		const settingData = await this.query(c);
 		let resendTokens = { ...settingData.resendTokens, ...params.resendTokens };
 		Object.keys(resendTokens).forEach(domain => {
@@ -138,8 +187,20 @@ const settingService = {
 			params.aiCodeFilter = params.aiCodeFilter + '';
 		}
 
+		if (params.anonymousReceiveBlacklist !== undefined) {
+			params.anonymousReceiveBlacklist = Array.isArray(params.anonymousReceiveBlacklist)
+				? params.anonymousReceiveBlacklist + ''
+				: String(params.anonymousReceiveBlacklist);
+		}
+
 		params.resendTokens = JSON.stringify(resendTokens);
 		await orm(c).update(setting).set({ ...params }).returning().get();
+		if (params.anonymousReceiveBlacklist !== undefined) {
+			await c.env.db
+				.prepare('UPDATE setting SET anonymous_receive_blacklist = ?')
+				.bind(params.anonymousReceiveBlacklist)
+				.run();
+		}
 		await this.refresh(c);
 	},
 
@@ -207,6 +268,9 @@ const settingService = {
 			manyEmail: settingRow.manyEmail,
 			addEmail: settingRow.addEmail,
 			autoRefresh: settingRow.autoRefresh,
+			anonymousReceive: settingRow.anonymousReceive,
+			anonymousReceiveCount: settingRow.anonymousReceiveCount,
+			anonymousReceiveRefresh: settingRow.anonymousReceiveRefresh,
 			addEmailVerify: settingRow.addEmailVerify,
 			registerVerify: settingRow.registerVerify,
 			send: settingRow.send,

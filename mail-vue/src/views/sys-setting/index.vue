@@ -204,6 +204,79 @@
             </div>
           </div>
 
+          <!-- Anonymous Inbox Settings Card -->
+          <div class="settings-card">
+            <div class="card-title">{{ $t('anonymousReceive') }}</div>
+            <div class="card-content">
+              <div class="setting-item">
+                <div>
+                  <span>{{ $t('anonymousReceive') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-switch @change="change" :before-change="beforeChange" :active-value="0" :inactive-value="1"
+                             v-model="setting.anonymousReceive"/>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div>
+                  <span>{{ $t('anonymousReceiveCount') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveCountDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-input-number
+                      v-model="anonymousReceiveCount"
+                      :min="-1"
+                      :max="50"
+                      size="small"
+                      @change="saveAnonymousReceiveCount"
+                  />
+                </div>
+              </div>
+              <div class="setting-item">
+                <div>
+                  <span>{{ $t('anonymousReceiveRefresh') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveRefreshDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-select
+                      @change="change"
+                      :style="`width: ${ locale === 'en' ? 100 : 80 }px;`"
+                      v-model="setting.anonymousReceiveRefresh"
+                      placeholder="Select"
+                  >
+                    <el-option
+                        v-for="item in authRefreshOptions"
+                        :key="item.value"
+                        :label="item.label"
+                        :value="item.value"
+                    />
+                  </el-select>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div>
+                  <span>{{ $t('anonymousReceiveBlacklist') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveBlacklistDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div class="forward">
+                  <el-button class="opt-button" style="margin-top: 0" @click="openAnonymousReceiveBlacklist" size="small"
+                             type="primary">
+                    <Icon icon="fluent:settings-48-regular" width="16" height="16"/>
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Object Storage Card -->
           <div class="settings-card">
             <div class="card-title">{{ $t('oss') }}</div>
@@ -783,6 +856,26 @@
         </el-form>
         <el-button type="primary" style="width: 100%;" :loading="settingLoading" @click="saveBlackList">{{ $t('save') }}</el-button>
       </el-dialog>
+      <el-dialog v-model="anonymousReceiveBlacklistShow" class="forward-dialog" @closed="resetAnonymousReceiveBlacklist">
+        <template #header>
+          <div class="forward-head">
+            <span class="forward-set-title">{{ $t('anonymousReceiveBlacklist') }}</span>
+            <el-tooltip effect="dark" :content="$t('anonymousReceiveBlacklistDesc')">
+              <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+            </el-tooltip>
+          </div>
+        </template>
+        <el-form>
+          <el-form-item :label="t('anonymousReceiveBlacklistInputDesc')" label-position="top">
+            <el-input
+                v-model="anonymousReceiveBlacklistText"
+                type="textarea"
+                :autosize="{ minRows: 3, maxRows: 6 }"
+                :placeholder="$t('anonymousReceiveBlacklistInputDesc')" />
+          </el-form-item>
+        </el-form>
+        <el-button type="primary" style="width: 100%;" :loading="settingLoading" @click="saveAnonymousReceiveBlacklist">{{ $t('save') }}</el-button>
+      </el-dialog>
       <el-dialog v-model="aiCodeFilterShow" class="forward-dialog" @closed="resetAiCodeFilter">
         <template #header>
           <div class="forward-head">
@@ -838,6 +931,7 @@ const userStore = useUserStore();
 const editTitleShow = ref(false)
 const resendTokenFormShow = ref(false)
 const blackFormShow = ref(false)
+const anonymousReceiveBlacklistShow = ref(false)
 const aiCodeFilterShow = ref(false)
 const r2DomainShow = ref(false)
 const turnstileShow = ref(false)
@@ -862,6 +956,7 @@ let backgroundFile = {}
 const showSetBackground = ref(false)
 let regVerifyCount = ref(1)
 let addVerifyCount = ref(1)
+const anonymousReceiveCount = ref(10)
 let backup = '{}'
 const addS3Show = ref(false)
 const addVerifyCountShow = ref(false)
@@ -906,6 +1001,7 @@ const blackListForm = ref({
   blackContent: [],
   blackFrom: []
 })
+const anonymousReceiveBlacklistText = ref('')
 const aiCodeFilter = ref([])
 
 const authRefreshOptions = computed(() => [
@@ -953,10 +1049,12 @@ function getSettings() {
     r2DomainInput.value = setting.value.r2Domain
     addVerifyCount.value = setting.value.addVerifyCount
     regVerifyCount.value = setting.value.regVerifyCount
+    anonymousReceiveCount.value = normalizeAnonymousReceiveCount(setting.value.anonymousReceiveCount)
     resetNoticeForm()
     resetAddS3Form()
     resetEmailPrefix()
     resetBlackList()
+    resetAnonymousReceiveBlacklist()
     resetAiCodeFilter()
     nextTick(() => {
       settingReady.value = true
@@ -1242,6 +1340,10 @@ function resetBlackList() {
   blackListForm.value.blackSubject = setting.value.blackSubject ? setting.value.blackSubject.split(',') : []
 }
 
+function resetAnonymousReceiveBlacklist() {
+  anonymousReceiveBlacklistText.value = setting.value.anonymousReceiveBlacklist || ''
+}
+
 function resetAiCodeFilter() {
   aiCodeFilter.value = setting.value.aiCodeFilter ? setting.value.aiCodeFilter.split(',') : []
 }
@@ -1283,6 +1385,47 @@ function saveBlackList() {
   }).finally(() => {
     settingLoading.value = false;
   })
+}
+
+function saveAnonymousReceiveBlacklist() {
+  const rules = normalizeAnonymousReceiveBlockRules(anonymousReceiveBlacklistText.value)
+  const value = rules + ''
+  anonymousReceiveBlacklistText.value = value
+  backup = JSON.stringify(setting.value)
+  setting.value.anonymousReceiveBlacklist = value
+  editSetting({anonymousReceiveBlacklist: value}, true)
+}
+
+function saveAnonymousReceiveCount(value) {
+  const count = normalizeAnonymousReceiveCount(value ?? anonymousReceiveCount.value)
+  anonymousReceiveCount.value = count
+  changeField('anonymousReceiveCount', count)
+}
+
+function normalizeAnonymousReceiveBlockRules(value) {
+  return Array.from(new Set(
+      String(value || '')
+          .split(/[,，\n]/)
+          .map(normalizeAnonymousReceiveBlockRule)
+          .filter(Boolean)
+  ))
+}
+
+function normalizeAnonymousReceiveBlockRule(rule) {
+  const normalized = String(rule || '').trim().toLowerCase()
+  if (!normalized || /\s/.test(normalized)) {
+    return ''
+  }
+  if (isEmail(normalized) || normalized.includes('*') || normalized.includes('?')) {
+    return normalized
+  }
+  if (normalized.startsWith('@')) {
+    return `*${normalized}`
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) {
+    return `*@${normalized}`
+  }
+  return ''
 }
 
 function banEmailAddTag(val) {
@@ -1403,6 +1546,10 @@ function openBlackListForm() {
   blackFormShow.value = true
 }
 
+function openAnonymousReceiveBlacklist() {
+  anonymousReceiveBlacklistShow.value = true
+}
+
 function openAiCodeFilter() {
   aiCodeFilterShow.value = true
 }
@@ -1447,8 +1594,20 @@ function change(e) {
 
 function changeField(key, value) {
   if (!settingReady.value) return
+  backup = JSON.stringify(setting.value)
   setting.value[key] = value
   editSetting({[key]: value}, false)
+}
+
+function normalizeAnonymousReceiveCount(value) {
+  const count = Number(value)
+  if (count === -1) {
+    return -1
+  }
+  if (Number.isNaN(count)) {
+    return 10
+  }
+  return Math.min(Math.max(count, 0), 50)
 }
 
 function saveTitle() {
@@ -1491,10 +1650,13 @@ function editSetting(settingForm, refreshStatus = true) {
     noticePopupShow.value = false
     addS3Show.value = false
     emailPrefixShow.value = false
+    anonymousReceiveBlacklistShow.value = false
     aiCodeFilterShow.value = false
   }).catch((e) => {
     loginOpacity.value = setting.value.loginOpacity
     setting.value = {...setting.value, ...JSON.parse(backup)}
+    anonymousReceiveCount.value = normalizeAnonymousReceiveCount(setting.value.anonymousReceiveCount)
+    resetAnonymousReceiveBlacklist()
   }).finally(() => {
     settingLoading.value = false
     clearS3Loading.value = false
