@@ -30,8 +30,29 @@ const dbInit = {
 		await this.v2_9DB(c);
 		await this.v3_0DB(c);
 		await this.v3_1DB(c);
+		await this.v3_2DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v3_2DB(c) {
+		try {
+			await c.env.db.batch([
+				c.env.db.prepare(`ALTER TABLE setting ADD COLUMN anonymous_receive_registered_user INTEGER NOT NULL DEFAULT 0;`),
+				c.env.db.prepare(`ALTER TABLE setting ADD COLUMN anonymous_receive_domains TEXT NOT NULL DEFAULT '';`)
+			]);
+		} catch (e) {
+			console.warn(`跳过字段：${e.message}`);
+		}
+
+		try {
+			await c.env.db.batch([
+				c.env.db.prepare(`UPDATE setting SET anonymous_receive_registered_user = 0 WHERE anonymous_receive_registered_user IS NULL;`),
+				c.env.db.prepare(`UPDATE setting SET anonymous_receive_domains = '' WHERE anonymous_receive_domains IS NULL;`)
+			]);
+		} catch (e) {
+			console.warn(`跳过字段：${e.message}`);
+		}
 	},
 
 	async v3_0DB(c) {
@@ -630,6 +651,8 @@ const dbInit = {
 			anonymous_receive_count INTEGER NOT NULL,
 			anonymous_receive_refresh INTEGER NOT NULL,
 			anonymous_receive_blacklist TEXT NOT NULL,
+			anonymous_receive_registered_user INTEGER NOT NULL DEFAULT 0,
+			anonymous_receive_domains TEXT NOT NULL DEFAULT '',
 			register_verify INTEGER NOT NULL,
 			add_email_verify INTEGER NOT NULL
 		  )
@@ -638,9 +661,9 @@ const dbInit = {
 		try {
 			await c.env.db.prepare(`
 			  INSERT INTO setting (
-				register, receive, add_email, many_email, title, auto_refresh, anonymous_receive, anonymous_receive_count, anonymous_receive_refresh, anonymous_receive_blacklist, register_verify, add_email_verify
+				register, receive, add_email, many_email, title, auto_refresh, anonymous_receive, anonymous_receive_count, anonymous_receive_refresh, anonymous_receive_blacklist, anonymous_receive_registered_user, anonymous_receive_domains, register_verify, add_email_verify
 			  )
-			  SELECT 0, 0, 0, 0, 'Cloud Mail', 0, 0, 10, 10, '', 1, 1
+			  SELECT 0, 0, 0, 0, 'Cloud Mail', 0, 0, 10, 10, '', 0, '', 1, 1
 			  WHERE NOT EXISTS (SELECT 1 FROM setting)
 			`).run();
 		} catch (e) {

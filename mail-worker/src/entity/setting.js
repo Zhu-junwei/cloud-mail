@@ -10,6 +10,8 @@ export const setting = sqliteTable('setting', {
 	anonymousReceiveCount: integer('anonymous_receive_count').default(10).notNull(),
 	anonymousReceiveRefresh: integer('anonymous_receive_refresh').default(10).notNull(),
 	anonymousReceiveBlacklist: text('anonymous_receive_blacklist').default('').notNull(),
+	anonymousReceiveRegisteredUser: integer('anonymous_receive_registered_user').default(0).notNull(),
+	anonymousReceiveDomains: text('anonymous_receive_domains').default('').notNull(),
 	addEmailVerify: integer('add_email_verify').default(1).notNull(),
 	registerVerify: integer('register_verify').default(1).notNull(),
 	regVerifyCount: integer('reg_verify_count').default(1).notNull(),
