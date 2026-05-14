@@ -40,39 +40,21 @@ jobs:
         id: check_changes
         run: |
           git fetch upstream
-          # 获取上游和本地的变化，排除 sync.yml 文件
-          UPSTREAM_DIFF=$(git diff --name-only upstream/main..main | grep -v '.github/workflows/sync.yml' || true)
-          echo "Upstream changes (excluding sync.yml): $UPSTREAM_DIFF"
-          
-          # 如果没有变化，则设置 has_changes 为 false
-          if [ -z "$UPSTREAM_DIFF" ]; then
+          UPSTREAM_COMMITS=$(git rev-list --count HEAD..upstream/main)
+          echo "Upstream commits ahead of main: $UPSTREAM_COMMITS"
+
+          if [ "$UPSTREAM_COMMITS" -eq 0 ]; then
             echo "has_changes=false" >> $GITHUB_ENV
           else
             echo "has_changes=true" >> $GITHUB_ENV
           fi
 
-      - name: Reset fork to upstream
+      - name: Merge upstream into main
         if: env.has_changes == 'true'
         run: |
-          cp -r .github/workflows/sync.yml ../sync.yml.bak
-          git reset --hard upstream/main
-          mkdir -p .github/workflows
-          mv ../sync.yml.bak .github/workflows/sync.yml
-          git add .github/workflows/sync.yml
-          git commit -m "ci: restore workflow" || echo "No changes to commit"
+          git merge --no-ff --no-edit upstream/main
 
       - name: Push changes
         if: env.has_changes == 'true'
         run: |
-          git push https://${{ secrets.ACTION_PAT }}@github.com/${{ github.repository }}.git main --force     
-        
-      - name: Trigger Deployment Workflow
-        if: success() && env.has_changes == 'true'
-        run: |
-          DEPLOY_WORKFLOW_FILE="deploy-cloudflare.yml"
-          echo "Calling API to trigger ${DEPLOY_WORKFLOW_FILE}..."
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.ACTION_PAT }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/${DEPLOY_WORKFLOW_FILE}/dispatches" \
-            -d '{"ref":"main"}'
+          git push https://${{ secrets.ACTION_PAT }}@github.com/${{ github.repository }}.git main
