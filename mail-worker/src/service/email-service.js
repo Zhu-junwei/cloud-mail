@@ -919,6 +919,32 @@ const emailService = {
 			.filter(Boolean);
 	},
 
+	publicInboxDomains(value) {
+		return Array.from(new Set(
+			(Array.isArray(value) ? value : String(value || '').split(','))
+				.map(item => String(item || '').trim().toLowerCase())
+				.map(item => item.startsWith('@') ? item.slice(1) : item)
+				.filter(Boolean)
+		));
+	},
+
+	publicInboxAllowedDomains(setting) {
+		const availableDomains = this.publicInboxDomains(setting.domainList || []);
+		const selectedDomains = this.publicInboxDomains(setting.anonymousReceiveDomains || '');
+		const domains = selectedDomains.length ? selectedDomains : availableDomains;
+
+		if (!availableDomains.length) {
+			return domains;
+		}
+
+		return domains.filter(domain => availableDomains.includes(domain));
+	},
+
+	publicInboxDomainAllowed(setting, address) {
+		const domains = this.publicInboxAllowedDomains(setting);
+		return domains.includes(emailUtils.getDomain(address).toLowerCase());
+	},
+
 	publicInboxWildcardToRegExp(rule) {
 		return new RegExp('^' + rule
 			.replace(/[|\\{}()[\]^$+.,]/g, '\\$&')
@@ -949,13 +975,19 @@ const emailService = {
 			throw new BizError(t('anonymousReceiveClosed'), 403);
 		}
 
+		if (!this.publicInboxDomainAllowed(setting, address)) {
+			return { limit: 0, blocked: true };
+		}
+
 		if (this.publicInboxBlockRules(setting).some(rule => this.publicInboxRuleMatches(address, rule))) {
 			return { limit: 0, blocked: true };
 		}
 
+		const allowRegisteredUser = Number(setting.anonymousReceiveRegisteredUser) === settingConst.anonymousReceive.OPEN;
+
 		let limit = Number(setting.anonymousReceiveCount);
 		if (limit === -1) {
-			return { limit };
+			return { limit, allowRegisteredUser };
 		}
 
 		if (Number.isNaN(limit)) {
@@ -969,15 +1001,23 @@ const emailService = {
 			limit = 50;
 		}
 
-		return { limit };
+		return { limit, allowRegisteredUser };
 	},
 
-	publicInboxWhere(address) {
-		return and(
+	publicInboxWhere(address, access = {}) {
+		const baseConditions = [
 			sql`${email.toEmail} COLLATE NOCASE = ${address}`,
 			eq(email.type, emailConst.type.RECEIVE),
 			eq(email.isDel, isDel.NORMAL),
-			ne(email.status, emailConst.status.SAVING),
+			ne(email.status, emailConst.status.SAVING)
+		];
+
+		if (access.allowRegisteredUser === false) {
+			return and(...baseConditions, eq(email.accountId, 0));
+		}
+
+		return and(
+			...baseConditions,
 			or(
 				eq(email.accountId, 0),
 				and(
@@ -989,12 +1029,14 @@ const emailService = {
 	},
 
 	async publicInboxScope(c, address) {
-		const { limit, blocked = false } = await this.publicInboxAccess(c, address);
+		const { limit, blocked = false, allowRegisteredUser = true } = await this.publicInboxAccess(c, address);
+		const access = { allowRegisteredUser };
 
 		if (blocked || limit === 0) {
 			return {
 				limit,
 				blocked,
+				allowRegisteredUser,
 				cutoffEmailId: 0,
 				total: 0
 			};
@@ -1003,11 +1045,12 @@ const emailService = {
 		if (limit === -1) {
 			const totalRow = await orm(c).select({ total: count() }).from(email)
 				.leftJoin(account, eq(account.accountId, email.accountId))
-				.where(this.publicInboxWhere(address))
+				.where(this.publicInboxWhere(address, access))
 				.get();
 
 			return {
 				limit,
+				allowRegisteredUser,
 				cutoffEmailId: 0,
 				total: totalRow.total
 			};
@@ -1017,7 +1060,7 @@ const emailService = {
 			emailId: email.emailId
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(this.publicInboxWhere(address))
+			.where(this.publicInboxWhere(address, access))
 			.orderBy(desc(email.emailId))
 			.limit(limit)
 			.all();
@@ -1025,6 +1068,7 @@ const emailService = {
 		if (latestList.length === 0) {
 			return {
 				limit,
+				allowRegisteredUser,
 				cutoffEmailId: 0,
 				total: 0
 			};
@@ -1033,11 +1077,12 @@ const emailService = {
 		const cutoffEmailId = latestList.at(-1).emailId;
 		const totalRow = await orm(c).select({ total: count() }).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address), gte(email.emailId, cutoffEmailId)))
+			.where(and(this.publicInboxWhere(address, access), gte(email.emailId, cutoffEmailId)))
 			.get();
 
 		return {
 			limit,
+			allowRegisteredUser,
 			cutoffEmailId,
 			total: totalRow.total
 		};
@@ -1072,7 +1117,7 @@ const emailService = {
 		}
 
 		const conditions = and(
-			this.publicInboxWhere(address),
+			this.publicInboxWhere(address, scope),
 			gte(email.emailId, scope.cutoffEmailId || 0),
 			timeSort ? gt(email.emailId, emailId) : lt(email.emailId, emailId)
 		);
@@ -1105,7 +1150,7 @@ const emailService = {
 			emailId: email.emailId
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address), gte(email.emailId, scope.cutoffEmailId || 0)))
+			.where(and(this.publicInboxWhere(address, scope), gte(email.emailId, scope.cutoffEmailId || 0)))
 			.orderBy(desc(email.emailId)).limit(1).get();
 
 		await this.emailAddAtt(c, list);
@@ -1143,7 +1188,7 @@ const emailService = {
 			isDel: email.isDel
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address), gte(email.emailId, scope.cutoffEmailId || 0), gt(email.emailId, emailId)))
+			.where(and(this.publicInboxWhere(address, scope), gte(email.emailId, scope.cutoffEmailId || 0), gt(email.emailId, emailId)))
 			.orderBy(desc(email.emailId));
 
 		const list = await (scope.limit > 0 ? query.limit(scope.limit) : query).all();
@@ -1160,7 +1205,15 @@ const emailService = {
 			throw new BizError(t('anonymousReceiveClosed'), 403);
 		}
 
+		if (Number(setting.anonymousReceiveRegisteredUser) !== settingConst.anonymousReceive.OPEN) {
+			return { address: '' };
+		}
+
 		const conditions = [eq(account.isDel, isDel.NORMAL)];
+		const domains = this.publicInboxAllowedDomains(setting);
+		if (domains.length) {
+			conditions.push(or(...domains.map(domain => sql`${account.email} COLLATE NOCASE LIKE ${`%@${domain}`}`)));
+		}
 		for (const rule of this.publicInboxBlockRules(setting)) {
 			if (rule.includes('*') || rule.includes('?')) {
 				conditions.push(sql`${account.email} COLLATE NOCASE NOT LIKE ${this.publicInboxSqlLikePattern(rule)} ESCAPE '\\'`);
@@ -1199,7 +1252,7 @@ const emailService = {
 			...email
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address), gte(email.emailId, scope.cutoffEmailId || 0), eq(email.emailId, emailId)))
+			.where(and(this.publicInboxWhere(address, scope), gte(email.emailId, scope.cutoffEmailId || 0), eq(email.emailId, emailId)))
 			.get();
 
 		if (!emailRow) {

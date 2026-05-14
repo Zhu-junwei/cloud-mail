@@ -11,6 +11,8 @@ export const useSettingStore = defineStore('setting', {
             anonymousReceiveCount: 10,
             anonymousReceiveRefresh: 10,
             anonymousReceiveBlacklist: '',
+            anonymousReceiveRegisteredUser: 0,
+            anonymousReceiveDomains: [],
         },
         lang: '',
     }),

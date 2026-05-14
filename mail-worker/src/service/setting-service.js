@@ -17,7 +17,9 @@ const settingService = {
 			`ALTER TABLE setting ADD COLUMN anonymous_receive INTEGER NOT NULL DEFAULT 0;`,
 			`ALTER TABLE setting ADD COLUMN anonymous_receive_count INTEGER NOT NULL DEFAULT 10;`,
 			`ALTER TABLE setting ADD COLUMN anonymous_receive_refresh INTEGER NOT NULL DEFAULT 10;`,
-			`ALTER TABLE setting ADD COLUMN anonymous_receive_blacklist TEXT NOT NULL DEFAULT '';`
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_blacklist TEXT NOT NULL DEFAULT '';`,
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_registered_user INTEGER NOT NULL DEFAULT 0;`,
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_domains TEXT NOT NULL DEFAULT '';`
 		];
 
 		for (const sql of statements) {
@@ -39,6 +41,8 @@ const settingService = {
 		settingRow.anonymousReceiveCount = settingRow.anonymousReceiveCount ?? 10;
 		settingRow.anonymousReceiveRefresh = settingRow.anonymousReceiveRefresh ?? 10;
 		settingRow.anonymousReceiveBlacklist = settingRow.anonymousReceiveBlacklist ?? '';
+		settingRow.anonymousReceiveRegisteredUser = settingRow.anonymousReceiveRegisteredUser ?? settingConst.anonymousReceive.OPEN;
+		settingRow.anonymousReceiveDomains = settingRow.anonymousReceiveDomains ?? '';
 		return settingRow;
 	},
 
@@ -168,7 +172,9 @@ const settingService = {
 			params.anonymousReceive !== undefined ||
 			params.anonymousReceiveCount !== undefined ||
 			params.anonymousReceiveRefresh !== undefined ||
-			params.anonymousReceiveBlacklist !== undefined
+			params.anonymousReceiveBlacklist !== undefined ||
+			params.anonymousReceiveRegisteredUser !== undefined ||
+			params.anonymousReceiveDomains !== undefined
 		) {
 			await this.ensureAnonymousReceiveColumns(c);
 		}
@@ -196,6 +202,12 @@ const settingService = {
 			params.anonymousReceiveBlacklist = Array.isArray(params.anonymousReceiveBlacklist)
 				? params.anonymousReceiveBlacklist + ''
 				: String(params.anonymousReceiveBlacklist);
+		}
+
+		if (params.anonymousReceiveDomains !== undefined) {
+			params.anonymousReceiveDomains = Array.isArray(params.anonymousReceiveDomains)
+				? params.anonymousReceiveDomains + ''
+				: String(params.anonymousReceiveDomains);
 		}
 
 		params.resendTokens = JSON.stringify(resendTokens);
@@ -276,6 +288,10 @@ const settingService = {
 			anonymousReceive: settingRow.anonymousReceive,
 			anonymousReceiveCount: settingRow.anonymousReceiveCount,
 			anonymousReceiveRefresh: settingRow.anonymousReceiveRefresh,
+			anonymousReceiveRegisteredUser: settingRow.anonymousReceiveRegisteredUser,
+			anonymousReceiveDomains: settingRow.anonymousReceiveDomains
+				? settingRow.anonymousReceiveDomains.split(',').filter(Boolean).map(item => item.startsWith('@') ? item : `@${item}`)
+				: settingRow.domainList,
 			addEmailVerify: settingRow.addEmailVerify,
 			registerVerify: settingRow.registerVerify,
 			send: settingRow.send,

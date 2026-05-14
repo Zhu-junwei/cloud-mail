@@ -246,6 +246,18 @@
               </div>
               <div class="setting-item">
                 <div>
+                  <span>{{ $t('anonymousReceiveRegisteredUser') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveRegisteredUserDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-switch @change="change" :before-change="beforeChange" :active-value="0" :inactive-value="1"
+                             v-model="setting.anonymousReceiveRegisteredUser"/>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div>
                   <span>{{ $t('anonymousReceiveRefresh') }}</span>
                   <el-tooltip effect="dark" :content="$t('anonymousReceiveRefreshDesc')">
                     <Icon class="warning" icon="fe:warning" width="18" height="18"/>
@@ -263,6 +275,33 @@
                         :key="item.value"
                         :label="item.label"
                         :value="item.value"
+                    />
+                  </el-select>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div>
+                  <span>{{ $t('anonymousReceiveDomains') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveDomainsDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-select
+                      v-model="anonymousReceiveDomains"
+                      multiple
+                      collapse-tags
+                      collapse-tags-tooltip
+                      size="small"
+                      style="width: 220px"
+                      :placeholder="$t('select')"
+                      @change="saveAnonymousReceiveDomains"
+                  >
+                    <el-option
+                        v-for="item in anonymousReceiveDomainOptions"
+                        :key="item"
+                        :label="item"
+                        :value="item"
                     />
                   </el-select>
                 </div>
@@ -965,6 +1004,7 @@ const showSetBackground = ref(false)
 let regVerifyCount = ref(1)
 let addVerifyCount = ref(1)
 const anonymousReceiveCount = ref(10)
+const anonymousReceiveDomains = ref([])
 let backup = '{}'
 const addS3Show = ref(false)
 const addVerifyCountShow = ref(false)
@@ -1011,6 +1051,10 @@ const blackListForm = ref({
 })
 const anonymousReceiveBlacklistText = ref('')
 const aiCodeFilter = ref([])
+
+const anonymousReceiveDomainOptions = computed(() => {
+  return Array.isArray(settingStore.domainList) ? settingStore.domainList : []
+})
 
 const authRefreshOptions = computed(() => [
   {label: t('disable'), value: 0},
@@ -1059,6 +1103,7 @@ function getSettings() {
     addVerifyCount.value = setting.value.addVerifyCount
     regVerifyCount.value = setting.value.regVerifyCount
     anonymousReceiveCount.value = normalizeAnonymousReceiveCount(setting.value.anonymousReceiveCount)
+    resetAnonymousReceiveDomains()
     resetNoticeForm()
     resetAddS3Form()
     resetEmailPrefix()
@@ -1429,6 +1474,24 @@ function saveAnonymousReceiveCount(value) {
   changeField('anonymousReceiveCount', count)
 }
 
+function saveAnonymousReceiveDomains(value) {
+  const domains = normalizeAnonymousReceiveDomains(value)
+  if (!domains.length) {
+    anonymousReceiveDomains.value = normalizeAnonymousReceiveDomains(setting.value.anonymousReceiveDomains)
+    ElMessage({
+      message: t('anonymousReceiveDomainsDesc'),
+      type: 'warning',
+      plain: true
+    })
+    return
+  }
+
+  anonymousReceiveDomains.value = domains
+  backup = JSON.stringify(setting.value)
+  setting.value.anonymousReceiveDomains = domains + ''
+  editSetting({anonymousReceiveDomains: domains + ''}, false)
+}
+
 function normalizeAnonymousReceiveBlockRules(value) {
   return Array.from(new Set(
       String(value || '')
@@ -1453,6 +1516,24 @@ function normalizeAnonymousReceiveBlockRule(rule) {
     return `*@${normalized}`
   }
   return ''
+}
+
+function resetAnonymousReceiveDomains() {
+  anonymousReceiveDomains.value = normalizeAnonymousReceiveDomains(setting.value.anonymousReceiveDomains)
+}
+
+function normalizeAnonymousReceiveDomains(value) {
+  const options = anonymousReceiveDomainOptions.value
+  const selected = Array.isArray(value) ? value : String(value || '').split(/[,，]/)
+  const normalized = selected
+      .map(item => String(item || '').trim().toLowerCase())
+      .map(item => item ? (item.startsWith('@') ? item : `@${item}`) : '')
+      .filter(Boolean)
+  const unique = Array.from(new Set(normalized))
+      .map(item => options.find(option => option.toLowerCase() === item) || '')
+      .filter(Boolean)
+
+  return unique.length ? unique : [...options]
 }
 
 function banEmailAddTag(val) {
@@ -1684,6 +1765,7 @@ function editSetting(settingForm, refreshStatus = true) {
     loginDarkenFactor.value = normalizeFactor(setting.value.loginDarkenFactor)
     setting.value = {...setting.value, ...JSON.parse(backup)}
     anonymousReceiveCount.value = normalizeAnonymousReceiveCount(setting.value.anonymousReceiveCount)
+    resetAnonymousReceiveDomains()
     resetAnonymousReceiveBlacklist()
   }).finally(() => {
     settingLoading.value = false

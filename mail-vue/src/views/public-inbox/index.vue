@@ -11,14 +11,15 @@
     <button
         class="back-button"
         type="button"
-        title="返回邮箱"
-        aria-label="返回邮箱"
+        :title="$t('publicInboxBackMailbox')"
+        :aria-label="$t('publicInboxBackMailbox')"
         @click="goMailbox"
     >
       <Icon icon="material-symbols:arrow-back-rounded" width="20" height="20" />
     </button>
     <main class="public-page">
-      <aside class="history-panel history-floating">
+      <div v-if="mobileToolsOpen" class="mobile-tools-overlay" @click="mobileToolsOpen = false"></div>
+      <aside class="history-panel history-floating" :class="{ 'mobile-tools-open': mobileToolsOpen }">
         <div class="history-head">
           <span>{{ $t('history') }}</span>
           <el-button v-if="historyRecords.length" text size="small" @click="clearHistory">
@@ -55,6 +56,16 @@
         <div class="start-lookup">
           <div class="lookup-control">
             <button
+                class="mobile-tools-button"
+                :class="{ active: mobileToolsOpen }"
+                type="button"
+                :title="mobileToolsOpen ? $t('collapse') : $t('expand')"
+                :aria-label="mobileToolsOpen ? $t('collapse') : $t('expand')"
+                @click="mobileToolsOpen = !mobileToolsOpen"
+            >
+              <Icon :icon="mobileToolsOpen ? 'material-symbols:close-rounded' : 'material-symbols:menu-rounded'" width="20" height="20" />
+            </button>
+            <button
                 class="random-email-button"
                 type="button"
                 :disabled="loading"
@@ -81,6 +92,8 @@
                       v-model="suffix"
                       class="suffix-select"
                       :placeholder="$t('select')"
+                      placement="bottom-start"
+                      :fallback-placements="['bottom-start']"
                   >
                     <el-option
                         v-for="item in domainList"
@@ -256,7 +269,13 @@ const {t} = useI18n()
 const form = reactive({
   address: ''
 })
-const domainList = computed(() => Array.isArray(settingStore.domainList) ? settingStore.domainList : [])
+const domainList = computed(() => {
+  const publicDomains = normalizeDomainList(settingStore.settings.anonymousReceiveDomains)
+  if (publicDomains.length) {
+    return publicDomains
+  }
+  return normalizeDomainList(settingStore.domainList)
+})
 const suffix = ref('')
 const suffixSelect = ref()
 const list = ref([])
@@ -277,6 +296,7 @@ const autoRefreshCycle = ref(0)
 const historyRecords = ref([])
 const inboxReady = ref(false)
 const autoSearchPaused = ref(false)
+const mobileToolsOpen = ref(false)
 let stopped = false
 const historyKey = 'public-inbox-history'
 let searchSeq = 0
@@ -344,11 +364,15 @@ const scheduleAutoSearch = debounce(() => {
 onMounted(() => {
   historyRecords.value = loadHistory()
   const address = route.query.email || ''
+  const initialRouteAddress = typeof address === 'string' ? address : ''
   if (typeof address === 'string') {
-    applyAddressValue(address, true)
+    applyPreviewAddressValue(address, true)
   }
   if (isEmail(getSearchAddress())) {
-    search().finally(() => {
+    search(initialRouteAddress).finally(() => {
+      if (initialRouteAddress) {
+        router.replace({path: '/public-inbox'})
+      }
       inboxReady.value = true
       autoSearchPaused.value = false
     })
@@ -368,6 +392,15 @@ function normalizeList(rows) {
     ...item,
     preview: htmlToText(item.text || '')
   }))
+}
+
+function normalizeDomainList(value) {
+  return Array.from(new Set(
+      (Array.isArray(value) ? value : String(value || '').split(','))
+          .map(item => String(item || '').trim())
+          .filter(Boolean)
+          .map(item => item.startsWith('@') ? item : `@${item}`)
+  ))
 }
 
 function htmlToText(text) {
@@ -443,6 +476,7 @@ function openSuffixSelect() {
 }
 
 function goMailbox() {
+  mobileToolsOpen.value = false
   const token = localStorage.getItem('token')
   router.replace(token ? '/inbox' : '/login')
 }
@@ -506,6 +540,38 @@ function applyAddressValue(value, pauseAutoSearch = false) {
   }
 }
 
+function applyPreviewAddressValue(value, pauseAutoSearch = false) {
+  autoSearchPaused.value = pauseAutoSearch
+  if (pauseAutoSearch) {
+    scheduleAutoSearch.cancel()
+  }
+
+  const text = (value || '').trim()
+  const fallbackSuffix = suffix.value || domainList.value[0] || ''
+  if (!text) {
+    form.address = ''
+    if (fallbackSuffix) {
+      suffix.value = fallbackSuffix
+    }
+    return
+  }
+
+  const index = text.indexOf('@')
+  if (index <= 0) {
+    form.address = text
+    if (fallbackSuffix) {
+      suffix.value = fallbackSuffix
+    }
+    return
+  }
+
+  const local = text.slice(0, index)
+  const emailSuffix = text.slice(index)
+  const matched = domainList.value.find(item => item.toLowerCase() === emailSuffix.toLowerCase())
+  form.address = local
+  suffix.value = matched || fallbackSuffix
+}
+
 function handleAddressPaste(event) {
   const text = event.clipboardData?.getData('text')?.trim()
   if (!text) {
@@ -550,9 +616,11 @@ function clearHistory() {
   localStorage.removeItem(historyKey)
 }
 
-function openHistory(address) {
-  applyAddressValue(address, true)
+async function openHistory(address) {
+  applyPreviewAddressValue(address, true)
   autoSearchPaused.value = false
+  mobileToolsOpen.value = false
+  await search(address)
 }
 
 async function loadMore() {
@@ -966,6 +1034,11 @@ function formatReceive(email) {
 .back-button:hover {
   color: var(--el-color-primary);
   border-color: var(--el-color-primary);
+}
+
+.mobile-tools-button,
+.mobile-tools-overlay {
+  display: none;
 }
 
 .result-meta {
@@ -1467,11 +1540,43 @@ function formatReceive(email) {
   }
 
   .search-area {
-    padding-top: 12vh;
+    padding-top: 5vh;
   }
 
   .search-area.compact {
-    padding-top: 6vh;
+    padding-top: 3vh;
+  }
+
+  .back-button {
+    display: none;
+  }
+
+  .mobile-tools-button {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--el-border-color);
+    border-radius: 6px;
+    background: var(--el-bg-color);
+    color: var(--el-text-color-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+
+    &.active,
+    &:hover {
+      color: var(--el-color-primary);
+      border-color: var(--el-color-primary);
+    }
+  }
+
+  .mobile-tools-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 18;
+    display: block;
+    background: rgb(0 0 0 / 18%);
   }
 
   .start-lookup {
@@ -1516,7 +1621,7 @@ function formatReceive(email) {
   }
 
   .lookup-control {
-    grid-template-columns: 38px minmax(0, 1fr);
+    grid-template-columns: 38px 38px minmax(0, 1fr);
   }
 
   .open-button {
@@ -1524,9 +1629,23 @@ function formatReceive(email) {
   }
 
   .history-floating {
-    top: 10px;
-    right: 10px;
-    width: min(220px, calc(100vw - 20px));
+    top: 56px;
+    left: 10px;
+    right: auto;
+    z-index: 22;
+    width: min(280px, calc(100vw - 20px));
+    max-height: calc(100vh - 70px);
+    overflow: auto;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+
+  .history-floating.mobile-tools-open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
   }
 
   .list-meta {

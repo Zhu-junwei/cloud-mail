@@ -11,16 +11,19 @@ ip = "0.0.0.0"
 
 [[d1_databases]]
 binding = "db"
-database_name = "email"
-database_id = "a4c1a63a-6ef5-4e6d-8e8c-b6d9e8feb810"
+database_name = "mail-d1"
+database_id = "2888ab95-5cc6-4135-baab-fd3e8545a806"
+remote = true
 
 [[kv_namespaces]]
 binding = "kv"
-id = "2io01d4b299e481b9de060ece9e7785c"
+id = "9843c6e570a448b784f9b605511e2b32"
+remote = true
 
-#[[r2_buckets]]
-#binding = "r2"
-#bucket_name = "email"
+[[r2_buckets]]
+binding = "r2"
+bucket_name = "mail-r2"
+remote = true
 
 #[ai]
 #binding = "ai"
@@ -39,6 +42,6 @@ run_worker_first = true
 ai_model = ""
 analysis_cache = false
 orm_log = false
-domain = ["example.com", "example2.com", "example3.com", "example4.com"]
-admin = "admin@example.com"
+domain = ["900198.xyz", "xxzu.de", "biso.cc.cd"]
+admin = "zjw@900198.xyz"
 jwt_secret = "b7f29a1d-18e2-4d3b-941f-f6b2c97c02fd"
