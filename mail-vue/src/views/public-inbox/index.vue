@@ -291,7 +291,6 @@ import {Icon} from '@iconify/vue'
 import {debounce} from 'lodash-es'
 import ShadowHtml from '@/components/shadow-html/index.vue'
 import {publicInboxDetail, publicInboxLatest, publicInboxList} from '@/request/public-inbox.js'
-import {websiteConfig} from '@/request/setting.js'
 import {isEmail} from '@/utils/verify-utils.js'
 import {fromNow, formatDetailDate} from '@/utils/day.js'
 import {cvtR2Url, toOssDomain} from '@/utils/convert.js'
@@ -459,7 +458,6 @@ onMounted(async () => {
   if (initialRouteAddress) {
     applyPreviewAddressValue(initialRouteAddress, true)
   }
-  await refreshPublicInboxSettings()
   if (isEmail(getSearchAddress())) {
     search().finally(() => {
       inboxReady.value = true
@@ -488,16 +486,6 @@ function normalizeList(rows) {
     ...item,
     preview: htmlToText(item.text || '')
   }))
-}
-
-async function refreshPublicInboxSettings() {
-  try {
-    const setting = await websiteConfig()
-    settingStore.settings = setting
-    settingStore.domainList = setting.domainList
-  } catch (e) {
-    console.error(e)
-  }
 }
 
 function normalizeDomainList(value) {
