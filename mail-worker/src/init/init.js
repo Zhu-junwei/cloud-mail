@@ -32,6 +32,7 @@ const dbInit = {
 		await this.v3_1DB(c);
 		await this.v3_2DB(c);
 		await this.v3_3DB(c);
+		await this.v3_4DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
 	},
@@ -117,6 +118,20 @@ const dbInit = {
 				c.env.db.prepare(`UPDATE setting SET anonymous_receive_refresh = 10 WHERE anonymous_receive_refresh IS NULL;`),
 				c.env.db.prepare(`UPDATE setting SET anonymous_receive_blacklist = '' WHERE anonymous_receive_blacklist IS NULL;`)
 			]);
+		} catch (e) {
+			console.warn(`跳过字段：${e.message}`);
+		}
+	},
+
+	async v3_4DB(c) {
+		try {
+			await c.env.db.prepare(`ALTER TABLE setting ADD COLUMN anonymous_receive_days INTEGER NOT NULL DEFAULT 0;`).run();
+		} catch (e) {
+			console.warn(`跳过字段：${e.message}`);
+		}
+
+		try {
+			await c.env.db.prepare(`UPDATE setting SET anonymous_receive_days = 0 WHERE anonymous_receive_days IS NULL;`).run();
 		} catch (e) {
 			console.warn(`跳过字段：${e.message}`);
 		}
@@ -664,6 +679,7 @@ const dbInit = {
 			auto_refresh INTEGER NOT NULL,
 			anonymous_receive INTEGER NOT NULL,
 			anonymous_receive_count INTEGER NOT NULL,
+			anonymous_receive_days INTEGER NOT NULL DEFAULT 0,
 			anonymous_receive_refresh INTEGER NOT NULL,
 			anonymous_receive_blacklist TEXT NOT NULL,
 			anonymous_receive_registered_user INTEGER NOT NULL DEFAULT 0,
@@ -676,9 +692,9 @@ const dbInit = {
 		try {
 			await c.env.db.prepare(`
 			  INSERT INTO setting (
-				register, receive, add_email, many_email, title, auto_refresh, anonymous_receive, anonymous_receive_count, anonymous_receive_refresh, anonymous_receive_blacklist, anonymous_receive_registered_user, anonymous_receive_domains, register_verify, add_email_verify
+				register, receive, add_email, many_email, title, auto_refresh, anonymous_receive, anonymous_receive_count, anonymous_receive_days, anonymous_receive_refresh, anonymous_receive_blacklist, anonymous_receive_registered_user, anonymous_receive_domains, register_verify, add_email_verify
 			  )
-			  SELECT 0, 0, 0, 0, 'Cloud Mail', 0, 0, 10, 10, '', 0, '', 1, 1
+			  SELECT 0, 0, 0, 0, 'Cloud Mail', 0, 0, 10, 0, 10, '', 0, '', 1, 1
 			  WHERE NOT EXISTS (SELECT 1 FROM setting)
 			`).run();
 		} catch (e) {

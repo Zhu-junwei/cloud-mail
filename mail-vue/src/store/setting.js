@@ -9,6 +9,7 @@ export const useSettingStore = defineStore('setting', {
             loginDarkenFactor: 0,
             anonymousReceive: 0,
             anonymousReceiveCount: 10,
+            anonymousReceiveDays: 0,
             anonymousReceiveRefresh: 10,
             anonymousReceiveBlacklist: '',
             anonymousReceiveRegisteredUser: 0,

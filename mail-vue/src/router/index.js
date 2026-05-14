@@ -63,6 +63,14 @@ const routes = [
         }
     },
     {
+        path: '/public-inbox/:email',
+        name: 'publicInboxEmail',
+        component: () => import('@/views/public-inbox/index.vue'),
+        meta: {
+            public: true
+        }
+    },
+    {
         path: '/login',
         name: 'login',
         component: () => import('@/views/login/index.vue')

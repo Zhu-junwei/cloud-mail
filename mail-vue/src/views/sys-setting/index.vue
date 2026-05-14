@@ -246,6 +246,23 @@
               </div>
               <div class="setting-item">
                 <div>
+                  <span>{{ $t('anonymousReceiveDays') }}</span>
+                  <el-tooltip effect="dark" :content="$t('anonymousReceiveDaysDesc')">
+                    <Icon class="warning" icon="fe:warning" width="18" height="18"/>
+                  </el-tooltip>
+                </div>
+                <div>
+                  <el-input-number
+                      v-model="anonymousReceiveDays"
+                      :min="0"
+                      :max="365"
+                      size="small"
+                      @change="saveAnonymousReceiveDays"
+                  />
+                </div>
+              </div>
+              <div class="setting-item">
+                <div>
                   <span>{{ $t('anonymousReceiveRegisteredUser') }}</span>
                   <el-tooltip effect="dark" :content="$t('anonymousReceiveRegisteredUserDesc')">
                     <Icon class="warning" icon="fe:warning" width="18" height="18"/>
@@ -943,7 +960,7 @@
 </template>
 
 <script setup>
-import {computed, defineOptions, nextTick, reactive, ref} from "vue";
+import {computed, defineOptions, nextTick, onUnmounted, reactive, ref, watch} from "vue";
 import {deleteBackground, setBackground, setBlackList, settingQuery, settingSet} from "@/request/setting.js";
 import {useSettingStore} from "@/store/setting.js";
 import {useUiStore} from "@/store/ui.js";
@@ -1004,8 +1021,24 @@ const showSetBackground = ref(false)
 let regVerifyCount = ref(1)
 let addVerifyCount = ref(1)
 const anonymousReceiveCount = ref(10)
+const anonymousReceiveDays = ref(0)
 const anonymousReceiveDomains = ref([])
+const saveAnonymousReceiveSettings = debounce(() => {
+  if (!settingReady.value) return
+
+  const count = normalizeAnonymousReceiveCount(anonymousReceiveCount.value)
+  const days = normalizeAnonymousReceiveDays(anonymousReceiveDays.value)
+  backup = JSON.stringify(setting.value)
+  setting.value.anonymousReceiveCount = count
+  setting.value.anonymousReceiveDays = days
+  editSetting({anonymousReceiveCount: count, anonymousReceiveDays: days}, false)
+}, 400, {
+  leading: false,
+  trailing: true
+})
 let backup = '{}'
+let queuedSettingForm = null
+let queuedSettingRefreshStatus = false
 const addS3Show = ref(false)
 const addVerifyCountShow = ref(false)
 const regVerifyCountShow = ref(false)
@@ -1084,6 +1117,11 @@ const tgMsgToOption = [{label: t('show'), value: 'show'}, {label: t('hide'), val
 const tgMsgTextOption = [{label: t('show'), value: 'show'}, {label: t('hide'), value: 'hide'}]
 const tgMsgLabelWidth = computed(() => locale.value === 'en' ? '120px' : '100px');
 
+watch([anonymousReceiveCount, anonymousReceiveDays], () => {
+  if (!settingReady.value) return
+  saveAnonymousReceiveSettings()
+})
+
 getSettings()
 getUpdate()
 
@@ -1103,6 +1141,7 @@ function getSettings() {
     addVerifyCount.value = setting.value.addVerifyCount
     regVerifyCount.value = setting.value.regVerifyCount
     anonymousReceiveCount.value = normalizeAnonymousReceiveCount(setting.value.anonymousReceiveCount)
+    anonymousReceiveDays.value = normalizeAnonymousReceiveDays(setting.value.anonymousReceiveDays)
     resetAnonymousReceiveDomains()
     resetNoticeForm()
     resetAddS3Form()
@@ -1471,7 +1510,13 @@ function saveAnonymousReceiveBlacklist() {
 function saveAnonymousReceiveCount(value) {
   const count = normalizeAnonymousReceiveCount(value ?? anonymousReceiveCount.value)
   anonymousReceiveCount.value = count
-  changeField('anonymousReceiveCount', count)
+  saveAnonymousReceiveSettings()
+}
+
+function saveAnonymousReceiveDays(value) {
+  const days = normalizeAnonymousReceiveDays(value ?? anonymousReceiveDays.value)
+  anonymousReceiveDays.value = days
+  saveAnonymousReceiveSettings()
 }
 
 function saveAnonymousReceiveDomains(value) {
@@ -1718,6 +1763,14 @@ function normalizeAnonymousReceiveCount(value) {
   return Math.min(Math.max(count, 0), 50)
 }
 
+function normalizeAnonymousReceiveDays(value) {
+  const days = Number(value)
+  if (Number.isNaN(days) || days < 0) {
+    return 0
+  }
+  return Math.min(days, 365)
+}
+
 function saveTitle() {
   editSetting({title: editTitle.value})
 }
@@ -1730,11 +1783,14 @@ function jump(href) {
 }
 
 function editSetting(settingForm, refreshStatus = true) {
-  if (settingLoading.value) return
+  if (settingLoading.value) {
+    queuedSettingForm = {...(queuedSettingForm || {}), ...settingForm}
+    queuedSettingRefreshStatus = queuedSettingRefreshStatus || refreshStatus
+    return
+  }
   settingLoading.value = true
 
   settingSet(settingForm).then(() => {
-    settingLoading.value = false
     ElMessage({
       message: t('saveSuccessMsg'),
       type: "success",
@@ -1765,13 +1821,25 @@ function editSetting(settingForm, refreshStatus = true) {
     loginDarkenFactor.value = normalizeFactor(setting.value.loginDarkenFactor)
     setting.value = {...setting.value, ...JSON.parse(backup)}
     anonymousReceiveCount.value = normalizeAnonymousReceiveCount(setting.value.anonymousReceiveCount)
+    anonymousReceiveDays.value = normalizeAnonymousReceiveDays(setting.value.anonymousReceiveDays)
     resetAnonymousReceiveDomains()
     resetAnonymousReceiveBlacklist()
   }).finally(() => {
     settingLoading.value = false
     clearS3Loading.value = false
+    if (queuedSettingForm) {
+      const nextForm = queuedSettingForm
+      const nextRefreshStatus = queuedSettingRefreshStatus
+      queuedSettingForm = null
+      queuedSettingRefreshStatus = false
+      nextTick(() => editSetting(nextForm, nextRefreshStatus))
+    }
   })
 }
+
+onUnmounted(() => {
+  saveAnonymousReceiveSettings.flush()
+})
 </script>
 
 <style scoped lang="scss">

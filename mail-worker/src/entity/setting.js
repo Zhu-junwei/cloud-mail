@@ -8,6 +8,7 @@ export const setting = sqliteTable('setting', {
 	autoRefresh: integer('auto_refresh').default(0).notNull(),
 	anonymousReceive: integer('anonymous_receive').default(0).notNull(),
 	anonymousReceiveCount: integer('anonymous_receive_count').default(10).notNull(),
+	anonymousReceiveDays: integer('anonymous_receive_days').default(0).notNull(),
 	anonymousReceiveRefresh: integer('anonymous_receive_refresh').default(10).notNull(),
 	anonymousReceiveBlacklist: text('anonymous_receive_blacklist').default('').notNull(),
 	anonymousReceiveRegisteredUser: integer('anonymous_receive_registered_user').default(0).notNull(),

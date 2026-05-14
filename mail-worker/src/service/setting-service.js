@@ -16,6 +16,7 @@ const settingService = {
 		const statements = [
 			`ALTER TABLE setting ADD COLUMN anonymous_receive INTEGER NOT NULL DEFAULT 0;`,
 			`ALTER TABLE setting ADD COLUMN anonymous_receive_count INTEGER NOT NULL DEFAULT 10;`,
+			`ALTER TABLE setting ADD COLUMN anonymous_receive_days INTEGER NOT NULL DEFAULT 0;`,
 			`ALTER TABLE setting ADD COLUMN anonymous_receive_refresh INTEGER NOT NULL DEFAULT 10;`,
 			`ALTER TABLE setting ADD COLUMN anonymous_receive_blacklist TEXT NOT NULL DEFAULT '';`,
 			`ALTER TABLE setting ADD COLUMN anonymous_receive_registered_user INTEGER NOT NULL DEFAULT 0;`,
@@ -39,6 +40,7 @@ const settingService = {
 		}
 		settingRow.anonymousReceive = settingRow.anonymousReceive ?? settingConst.anonymousReceive.OPEN;
 		settingRow.anonymousReceiveCount = settingRow.anonymousReceiveCount ?? 10;
+		settingRow.anonymousReceiveDays = settingRow.anonymousReceiveDays ?? 0;
 		settingRow.anonymousReceiveRefresh = settingRow.anonymousReceiveRefresh ?? 10;
 		settingRow.anonymousReceiveBlacklist = settingRow.anonymousReceiveBlacklist ?? '';
 		settingRow.anonymousReceiveRegisteredUser = settingRow.anonymousReceiveRegisteredUser ?? settingConst.anonymousReceive.OPEN;
@@ -171,6 +173,7 @@ const settingService = {
 		if (
 			params.anonymousReceive !== undefined ||
 			params.anonymousReceiveCount !== undefined ||
+			params.anonymousReceiveDays !== undefined ||
 			params.anonymousReceiveRefresh !== undefined ||
 			params.anonymousReceiveBlacklist !== undefined ||
 			params.anonymousReceiveRegisteredUser !== undefined ||
@@ -198,6 +201,16 @@ const settingService = {
 			params.loginDarkenFactor = Number.isNaN(factor) ? 0 : Math.min(1, Math.max(0, factor));
 		}
 
+		if (params.anonymousReceiveCount !== undefined) {
+			const count = Number(params.anonymousReceiveCount);
+			params.anonymousReceiveCount = count === -1 ? -1 : Math.min(Math.max(Number.isNaN(count) ? 10 : count, 0), 50);
+		}
+
+		if (params.anonymousReceiveDays !== undefined) {
+			const days = Number(params.anonymousReceiveDays);
+			params.anonymousReceiveDays = Math.min(Math.max(Number.isNaN(days) ? 0 : days, 0), 365);
+		}
+
 		if (params.anonymousReceiveBlacklist !== undefined) {
 			params.anonymousReceiveBlacklist = Array.isArray(params.anonymousReceiveBlacklist)
 				? params.anonymousReceiveBlacklist + ''
@@ -212,6 +225,18 @@ const settingService = {
 
 		params.resendTokens = JSON.stringify(resendTokens);
 		await orm(c).update(setting).set({ ...params }).returning().get();
+		if (params.anonymousReceiveCount !== undefined) {
+			await c.env.db
+				.prepare('UPDATE setting SET anonymous_receive_count = ?')
+				.bind(params.anonymousReceiveCount)
+				.run();
+		}
+		if (params.anonymousReceiveDays !== undefined) {
+			await c.env.db
+				.prepare('UPDATE setting SET anonymous_receive_days = ?')
+				.bind(params.anonymousReceiveDays)
+				.run();
+		}
 		if (params.anonymousReceiveBlacklist !== undefined) {
 			await c.env.db
 				.prepare('UPDATE setting SET anonymous_receive_blacklist = ?')
@@ -287,6 +312,7 @@ const settingService = {
 			autoRefresh: settingRow.autoRefresh,
 			anonymousReceive: settingRow.anonymousReceive,
 			anonymousReceiveCount: settingRow.anonymousReceiveCount,
+			anonymousReceiveDays: settingRow.anonymousReceiveDays,
 			anonymousReceiveRefresh: settingRow.anonymousReceiveRefresh,
 			anonymousReceiveRegisteredUser: settingRow.anonymousReceiveRegisteredUser,
 			anonymousReceiveDomains: settingRow.anonymousReceiveDomains

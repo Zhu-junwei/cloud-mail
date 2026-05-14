@@ -987,21 +987,38 @@ const emailService = {
 
 		let limit = Number(setting.anonymousReceiveCount);
 		if (limit === -1) {
-			return { limit, allowRegisteredUser };
-		}
-
-		if (Number.isNaN(limit)) {
-			limit = 10;
-		}
-
-		if (limit < 0) {
 			limit = -1;
-		}
-		if (limit > 50) {
-			limit = 50;
+		} else {
+			if (Number.isNaN(limit)) {
+				limit = 10;
+			}
+
+			if (limit < 0) {
+				limit = -1;
+			}
+			if (limit > 50) {
+				limit = 50;
+			}
 		}
 
-		return { limit, allowRegisteredUser };
+		let days = Number(setting.anonymousReceiveDays);
+		if (Number.isNaN(days) || days < 0) {
+			days = 0;
+		}
+		if (days > 365) {
+			days = 365;
+		}
+
+		return { limit, days, allowRegisteredUser };
+	},
+
+	publicInboxScopeWhere(address, access = {}) {
+		const conditions = [this.publicInboxWhere(address, access)];
+		if (access.days > 0) {
+			const cutoffTime = dayjs().subtract(access.days, 'day').format('YYYY-MM-DD HH:mm:ss');
+			conditions.push(gte(email.createTime, cutoffTime));
+		}
+		return and(...conditions);
 	},
 
 	publicInboxWhere(address, access = {}) {
@@ -1029,14 +1046,17 @@ const emailService = {
 	},
 
 	async publicInboxScope(c, address) {
-		const { limit, blocked = false, allowRegisteredUser = true } = await this.publicInboxAccess(c, address);
-		const access = { allowRegisteredUser };
+		const { limit, days, blocked = false, allowRegisteredUser = true } = await this.publicInboxAccess(c, address);
+		const access = { allowRegisteredUser, days };
+		const where = this.publicInboxScopeWhere(address, access);
 
 		if (blocked || limit === 0) {
 			return {
 				limit,
+				days,
 				blocked,
 				allowRegisteredUser,
+				where,
 				cutoffEmailId: 0,
 				total: 0
 			};
@@ -1045,12 +1065,14 @@ const emailService = {
 		if (limit === -1) {
 			const totalRow = await orm(c).select({ total: count() }).from(email)
 				.leftJoin(account, eq(account.accountId, email.accountId))
-				.where(this.publicInboxWhere(address, access))
+				.where(where)
 				.get();
 
 			return {
 				limit,
+				days,
 				allowRegisteredUser,
+				where,
 				cutoffEmailId: 0,
 				total: totalRow.total
 			};
@@ -1060,7 +1082,7 @@ const emailService = {
 			emailId: email.emailId
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(this.publicInboxWhere(address, access))
+			.where(where)
 			.orderBy(desc(email.emailId))
 			.limit(limit)
 			.all();
@@ -1068,7 +1090,9 @@ const emailService = {
 		if (latestList.length === 0) {
 			return {
 				limit,
+				days,
 				allowRegisteredUser,
+				where,
 				cutoffEmailId: 0,
 				total: 0
 			};
@@ -1077,12 +1101,14 @@ const emailService = {
 		const cutoffEmailId = latestList.at(-1).emailId;
 		const totalRow = await orm(c).select({ total: count() }).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address, access), gte(email.emailId, cutoffEmailId)))
+			.where(and(where, gte(email.emailId, cutoffEmailId)))
 			.get();
 
 		return {
 			limit,
+			days,
 			allowRegisteredUser,
+			where,
 			cutoffEmailId,
 			total: totalRow.total
 		};
@@ -1117,7 +1143,7 @@ const emailService = {
 		}
 
 		const conditions = and(
-			this.publicInboxWhere(address, scope),
+			scope.where,
 			gte(email.emailId, scope.cutoffEmailId || 0),
 			timeSort ? gt(email.emailId, emailId) : lt(email.emailId, emailId)
 		);
@@ -1150,7 +1176,7 @@ const emailService = {
 			emailId: email.emailId
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address, scope), gte(email.emailId, scope.cutoffEmailId || 0)))
+			.where(and(scope.where, gte(email.emailId, scope.cutoffEmailId || 0)))
 			.orderBy(desc(email.emailId)).limit(1).get();
 
 		await this.emailAddAtt(c, list);
@@ -1188,7 +1214,7 @@ const emailService = {
 			isDel: email.isDel
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address, scope), gte(email.emailId, scope.cutoffEmailId || 0), gt(email.emailId, emailId)))
+			.where(and(scope.where, gte(email.emailId, scope.cutoffEmailId || 0), gt(email.emailId, emailId)))
 			.orderBy(desc(email.emailId));
 
 		const list = await (scope.limit > 0 ? query.limit(scope.limit) : query).all();
@@ -1252,7 +1278,7 @@ const emailService = {
 			...email
 		}).from(email)
 			.leftJoin(account, eq(account.accountId, email.accountId))
-			.where(and(this.publicInboxWhere(address, scope), gte(email.emailId, scope.cutoffEmailId || 0), eq(email.emailId, emailId)))
+			.where(and(scope.where, gte(email.emailId, scope.cutoffEmailId || 0), eq(email.emailId, emailId)))
 			.get();
 
 		if (!emailRow) {

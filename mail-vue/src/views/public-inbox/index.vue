@@ -55,6 +55,27 @@
       <section class="search-area">
         <div class="start-lookup">
           <div class="lookup-control">
+            <div class="mobile-actions-group">
+              <button
+                  class="mobile-action-button mobile-action-left"
+                  type="button"
+                  :title="mobileToolsOpen ? $t('collapse') : $t('expand')"
+                  :aria-label="mobileToolsOpen ? $t('collapse') : $t('expand')"
+                  @click="mobileToolsOpen = !mobileToolsOpen"
+              >
+                <Icon :icon="mobileToolsOpen ? 'material-symbols:close-rounded' : 'material-symbols:menu-rounded'" width="18" height="18" />
+              </button>
+              <button
+                  class="mobile-action-button mobile-action-right"
+                  type="button"
+                  :disabled="loading"
+                  :title="$t('publicInboxRandom')"
+                  :aria-label="$t('publicInboxRandom')"
+                  @click="randomAddress"
+              >
+                <Icon icon="ion:shuffle" width="16" height="16" />
+              </button>
+            </div>
             <button
                 class="mobile-tools-button"
                 :class="{ active: mobileToolsOpen }"
@@ -113,35 +134,36 @@
               <button class="open-button" type="button" :disabled="loading" :title="$t('publicInboxOpen')" :aria-label="$t('publicInboxOpen')" @click="search">
                 <Icon icon="material-symbols:search-rounded" width="18" height="18" />
               </button>
-              <button
-                  class="share-link-button"
-                  type="button"
-                  :disabled="!shareLinkUrl"
-                  :title="$t('publicInboxShareLink')"
-                  :aria-label="$t('publicInboxShareLink')"
-                  @click="copyShareLink"
-              >
-                <Icon icon="material-symbols:link-rounded" width="18" height="18" />
-              </button>
             </div>
           </div>
         </div>
       </section>
 
       <section class="result-area">
-        <div v-if="currentAddress" class="result-meta">
+        <div v-if="displayAddress" class="result-meta">
           <button class="result-address" type="button" :title="$t('copy')" @click="copyCurrentAddress">
-            {{ currentAddress }}
+            {{ displayAddress }}
           </button>
           <span
+              v-if="displayAddress"
               class="auto-refresh-icon"
-              :class="{ active: autoRefreshActive }"
+              :class="{ active: autoRefreshActive, loading: loading || refreshLoading }"
               :style="{ '--refresh-duration': `${autoRefreshInterval}s` }"
               :aria-hidden="true"
           >
             <span class="auto-refresh-track"></span>
             <span :key="autoRefreshCycle" class="auto-refresh-sector"></span>
           </span>
+          <button
+              class="share-link-button"
+              type="button"
+              :disabled="!shareLinkUrl"
+              :title="$t('publicInboxShareLink')"
+              :aria-label="$t('publicInboxShareLink')"
+              @click="copyShareLink"
+          >
+            <Icon icon="material-symbols:link-rounded" width="18" height="18" />
+          </button>
         </div>
         <div v-if="firstLoad" class="empty-state">
           <el-empty :description="$t('publicInboxEmptyGuide')" />
@@ -187,6 +209,9 @@
             </el-button>
           </div>
         </template>
+        <div class="scope-hint">
+          {{ publicInboxScopeLabel }}
+        </div>
       </section>
     </main>
 
@@ -208,10 +233,7 @@
           <span v-if="selected?.createTime" class="dialog-subtitle">{{ formatDetailDate(selected.createTime) }}</span>
         </div>
       </template>
-      <div v-if="detailLoading" class="detail-loading">
-        <el-skeleton :rows="8" animated />
-      </div>
-      <div v-else-if="selected" class="detail-container">
+      <div v-if="selected" class="detail-container">
         <div class="detail-head">
           <div class="email-info">
             <div class="send">
@@ -229,8 +251,13 @@
         </div>
         <el-scrollbar class="detail-scroll">
           <div class="content">
-            <ShadowHtml class="shadow-html" :html="formatImage(selected.content)" v-if="selected.content" />
-            <pre class="email-plain-text" v-else>{{ selected.text }}</pre>
+            <div v-if="detailLoading && !selected.content && !selected.text" class="detail-body-loading">
+              <el-skeleton :rows="8" animated />
+            </div>
+            <template v-else>
+              <ShadowHtml class="shadow-html" :html="formatImage(selected.content)" v-if="selected.content" />
+              <pre class="email-plain-text" v-else>{{ selected.text }}</pre>
+            </template>
             <div class="att" v-if="selected.attList?.length">
               <div class="att-title">
                 <span>{{ $t('attachments') }}</span>
@@ -264,6 +291,7 @@ import {Icon} from '@iconify/vue'
 import {debounce} from 'lodash-es'
 import ShadowHtml from '@/components/shadow-html/index.vue'
 import {publicInboxDetail, publicInboxLatest, publicInboxList} from '@/request/public-inbox.js'
+import {websiteConfig} from '@/request/setting.js'
 import {isEmail} from '@/utils/verify-utils.js'
 import {fromNow, formatDetailDate} from '@/utils/day.js'
 import {cvtR2Url, toOssDomain} from '@/utils/convert.js'
@@ -300,10 +328,12 @@ const currentAddress = ref('')
 const total = ref(0)
 const latestEmailId = ref(0)
 const loading = ref(false)
+const refreshLoading = ref(false)
 const loadingMore = ref(false)
 const firstLoad = ref(true)
 const noMore = ref(false)
 const autoRefreshActive = ref(false)
+const autoRefreshSuspended = ref(false)
 const autoRefreshCycle = ref(0)
 const historyRecords = ref([])
 const inboxReady = ref(false)
@@ -312,6 +342,9 @@ const mobileToolsOpen = ref(false)
 let stopped = false
 const historyKey = 'public-inbox-history'
 let searchSeq = 0
+let autoRefreshVersion = 0
+let awayPauseTimer = 0
+const awayPauseDelay = 3 * 60 * 1000
 const anonymousReceiveEnabled = computed(() => settingStore.settings.anonymousReceive === 0)
 const background = computed(() => {
   return settingStore.settings.background ? {
@@ -329,11 +362,36 @@ const anonymousReceiveCount = computed(() => {
   }
   return Math.min(count, 50)
 })
+const anonymousReceiveDays = computed(() => {
+  const days = Number(settingStore.settings.anonymousReceiveDays ?? 0)
+  if (Number.isNaN(days) || days < 0) {
+    return 0
+  }
+  return Math.min(days, 365)
+})
 const anonymousReceivePageSize = computed(() => {
   if (anonymousReceiveCount.value === -1) {
     return 50
   }
   return anonymousReceiveCount.value
+})
+const publicInboxScopeLabel = computed(() => {
+  const count = anonymousReceiveCount.value
+  const days = anonymousReceiveDays.value
+
+  if (count === 0) {
+    return t('publicInboxScopeEmpty')
+  }
+  if (count === -1 && days <= 0) {
+    return t('publicInboxScopeAll')
+  }
+  if (days > 0 && count > 0) {
+    return t('publicInboxScopeCountDays', {days, count})
+  }
+  if (days > 0) {
+    return t('publicInboxScopeDays', {days})
+  }
+  return t('publicInboxScopeCount', {count})
 })
 
 const autoRefreshInterval = computed(() => {
@@ -346,8 +404,17 @@ const suffixDisplayMinWidth = computed(() => {
   return `${Math.max(11, longest + 1)}ch`
 })
 
+const inputAddress = computed(() => getSearchAddress())
+
+const displayAddress = computed(() => {
+  if (currentAddress.value) {
+    return currentAddress.value
+  }
+  return firstLoad.value && isEmail(inputAddress.value) ? inputAddress.value : ''
+})
+
 const shareLinkUrl = computed(() => {
-  const address = getSearchAddress()
+  const address = displayAddress.value
   if (!isEmail(address)) {
     return ''
   }
@@ -385,15 +452,16 @@ const scheduleAutoSearch = debounce(() => {
   search()
 }, 350)
 
-onMounted(() => {
+onMounted(async () => {
   historyRecords.value = loadHistory()
-  const address = route.query.email || ''
-  const initialRouteAddress = typeof address === 'string' ? address : ''
-  if (typeof address === 'string') {
-    applyPreviewAddressValue(address, true)
+  const initialRouteAddress = getInitialRouteAddress()
+  normalizePublicInboxUrl()
+  if (initialRouteAddress) {
+    applyPreviewAddressValue(initialRouteAddress, true)
   }
+  await refreshPublicInboxSettings()
   if (isEmail(getSearchAddress())) {
-    search(initialRouteAddress).finally(() => {
+    search().finally(() => {
       inboxReady.value = true
       autoSearchPaused.value = false
     })
@@ -401,11 +469,18 @@ onMounted(() => {
     inboxReady.value = true
     autoSearchPaused.value = false
   }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', handlePageFocus)
+  window.addEventListener('blur', handlePageBlur)
   refreshLatestLoop()
 })
 
 onUnmounted(() => {
   stopped = true
+  clearAwayPauseTimer()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('focus', handlePageFocus)
+  window.removeEventListener('blur', handlePageBlur)
 })
 
 function normalizeList(rows) {
@@ -415,6 +490,16 @@ function normalizeList(rows) {
   }))
 }
 
+async function refreshPublicInboxSettings() {
+  try {
+    const setting = await websiteConfig()
+    settingStore.settings = setting
+    settingStore.domainList = setting.domainList
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 function normalizeDomainList(value) {
   return Array.from(new Set(
       (Array.isArray(value) ? value : String(value || '').split(','))
@@ -422,6 +507,22 @@ function normalizeDomainList(value) {
           .filter(Boolean)
           .map(item => item.startsWith('@') ? item : `@${item}`)
   ))
+}
+
+function getInitialRouteAddress() {
+  const address = route.query.email || route.query.address || route.params.email || ''
+  if (Array.isArray(address)) {
+    return address[0] || ''
+  }
+  return typeof address === 'string' ? address.trim() : ''
+}
+
+function normalizePublicInboxUrl() {
+  const canonical = router.resolve({name: 'publicInbox'})
+  if (route.fullPath === canonical.fullPath) {
+    return
+  }
+  router.replace({name: 'publicInbox'}).catch(() => {})
 }
 
 function htmlToText(text) {
@@ -443,7 +544,16 @@ async function search() {
     return
   }
 
+  const addressChanged = address !== currentAddress.value
+  applyAddressValue(address)
   closeDetail()
+  currentAddress.value = address
+  if (addressChanged) {
+    list.value = []
+    total.value = 0
+    latestEmailId.value = 0
+  }
+  stopAutoRefreshCountdown()
   loading.value = true
   firstLoad.value = false
   noMore.value = false
@@ -454,7 +564,6 @@ async function search() {
     if (seq !== searchSeq) {
       return
     }
-    currentAddress.value = address
     saveHistory(address)
     list.value = normalizeList(data.list)
     total.value = data.total
@@ -463,6 +572,8 @@ async function search() {
   } finally {
     if (seq === searchSeq) {
       loading.value = false
+      refreshLoading.value = false
+      resetAutoRefreshWait()
     }
   }
 }
@@ -502,12 +613,12 @@ function goMailbox() {
 }
 
 async function copyCurrentAddress() {
-  if (!currentAddress.value) {
+  if (!displayAddress.value) {
     return
   }
 
   try {
-    await navigator.clipboard.writeText(currentAddress.value)
+    await navigator.clipboard.writeText(displayAddress.value)
     ElMessage({message: t('copySuccessMsg'), type: 'success', plain: true})
   } catch (e) {
     ElMessage({message: t('copyFailMsg'), type: 'error', plain: true})
@@ -624,14 +735,14 @@ function handleAddressPaste(event) {
 function loadHistory() {
   try {
     const list = JSON.parse(localStorage.getItem(historyKey) || '[]')
-    return Array.isArray(list) ? list.filter(item => typeof item === 'string' && isEmail(item)).slice(0, 8) : []
+    return Array.isArray(list) ? list.filter(item => typeof item === 'string' && isEmail(item)).slice(0, 20) : []
   } catch (e) {
     return []
   }
 }
 
 function saveHistory(address) {
-  historyRecords.value = [address, ...historyRecords.value.filter(item => item !== address)].slice(0, 8)
+  historyRecords.value = [address, ...historyRecords.value.filter(item => item !== address)].slice(0, 20)
   localStorage.setItem(historyKey, JSON.stringify(historyRecords.value))
 }
 
@@ -682,12 +793,22 @@ async function openDetail(item) {
   selectedEmailId.value = item.emailId
   detailOpen.value = true
   detailLoading.value = true
+  selected.value = {
+    ...item,
+    text: item.preview || '',
+    content: '',
+    attList: item.attList || [],
+  }
   try {
     const data = await publicInboxDetail(currentAddress.value, item.emailId)
     if (seq !== detailSeq) {
       return
     }
-    selected.value = data
+    selected.value = {
+      ...selected.value,
+      ...data,
+      attList: data.attList || selected.value?.attList || [],
+    }
   } finally {
     if (seq === detailSeq) {
       detailLoading.value = false
@@ -703,22 +824,97 @@ function closeDetail() {
   selectedEmailId.value = 0
 }
 
+function stopAutoRefreshCountdown() {
+  autoRefreshVersion += 1
+  autoRefreshActive.value = false
+  refreshLoading.value = false
+  autoRefreshCycle.value += 1
+}
+
+function resetAutoRefreshWait() {
+  autoRefreshVersion += 1
+  autoRefreshActive.value = false
+  refreshLoading.value = false
+}
+
+function clearAwayPauseTimer() {
+  if (awayPauseTimer) {
+    window.clearTimeout(awayPauseTimer)
+    awayPauseTimer = 0
+  }
+}
+
+function pauseAutoRefreshWhenAway() {
+  if (awayPauseTimer || autoRefreshSuspended.value) {
+    return
+  }
+
+  awayPauseTimer = window.setTimeout(() => {
+    awayPauseTimer = 0
+    if (!document.hidden && document.hasFocus()) {
+      return
+    }
+
+    autoRefreshSuspended.value = true
+    stopAutoRefreshCountdown()
+  }, awayPauseDelay)
+}
+
+function resumeAutoRefreshWhenBack() {
+  clearAwayPauseTimer()
+  if (!autoRefreshSuspended.value) {
+    return
+  }
+
+  autoRefreshSuspended.value = false
+  resetAutoRefreshWait()
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) {
+    pauseAutoRefreshWhenAway()
+    return
+  }
+
+  resumeAutoRefreshWhenBack()
+}
+
+function handlePageFocus() {
+  resumeAutoRefreshWhenBack()
+}
+
+function handlePageBlur() {
+  pauseAutoRefreshWhenAway()
+}
+
+async function waitAutoRefreshInterval(seconds, version) {
+  for (let i = 0; i < seconds && !stopped; i++) {
+    await sleep(1000)
+    if (version !== autoRefreshVersion || loading.value || !currentAddress.value || !anonymousReceiveEnabled.value || autoRefreshSuspended.value) {
+      return false
+    }
+  }
+  return true
+}
+
 async function refreshLatestLoop() {
   while (!stopped) {
     const autoRefresh = autoRefreshInterval.value
-    if (!currentAddress.value || loading.value || !anonymousReceiveEnabled.value || autoRefresh <= 0) {
+    if (!currentAddress.value || loading.value || !anonymousReceiveEnabled.value || autoRefresh <= 0 || autoRefreshSuspended.value) {
       autoRefreshActive.value = false
       await sleep(1000)
       continue
     }
 
     try {
+      const version = autoRefreshVersion
       autoRefreshActive.value = true
       autoRefreshCycle.value += 1
-      await sleep(autoRefresh * 1000)
-      if (!currentAddress.value || loading.value || !anonymousReceiveEnabled.value) {
+      const shouldRefresh = await waitAutoRefreshInterval(autoRefresh, version)
+      if (!shouldRefresh || version !== autoRefreshVersion || loading.value) {
         continue
       }
+      refreshLoading.value = true
       const rows = await publicInboxLatest(currentAddress.value, newestEmailId.value)
       const known = new Set(list.value.map(item => item.emailId))
       const next = normalizeList(rows).filter(item => !known.has(item.emailId))
@@ -730,7 +926,8 @@ async function refreshLatestLoop() {
     } catch (e) {
       console.error(e)
     } finally {
-      autoRefreshActive.value = Boolean(currentAddress.value && anonymousReceiveEnabled.value && !loading.value)
+      refreshLoading.value = false
+      autoRefreshActive.value = false
     }
   }
 }
@@ -912,6 +1109,12 @@ function formatReceive(email) {
   .disabled {
     cursor: not-allowed;
     opacity: 0.35;
+  }
+
+  .share-link-button {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
   }
 }
 
@@ -1120,6 +1323,10 @@ function formatReceive(email) {
   display: none;
 }
 
+.mobile-actions-group {
+  display: none;
+}
+
 .result-meta {
   display: flex;
   align-items: center;
@@ -1146,12 +1353,8 @@ function formatReceive(email) {
   justify-content: center;
   width: 18px;
   height: 18px;
-  color: var(--el-text-color-primary);
-  position: relative;
-}
-
-.auto-refresh-icon.active {
   color: var(--el-color-success);
+  position: relative;
 }
 
 .auto-refresh-track {
@@ -1160,7 +1363,7 @@ function formatReceive(email) {
   border-radius: 50%;
   border: 1px solid currentColor;
   box-sizing: border-box;
-  opacity: 0.18;
+  opacity: 0.34;
 }
 
 .auto-refresh-sector {
@@ -1168,11 +1371,32 @@ function formatReceive(email) {
   position: absolute;
   inset: 1px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, currentColor var(--refresh-progress), transparent 0);
+  background: conic-gradient(from 0deg, transparent var(--refresh-progress), currentColor 0);
+  box-shadow: inset 0 0 0 1px rgb(34 197 94 / 12%);
 }
 
 .auto-refresh-icon.active .auto-refresh-sector {
   animation: auto-refresh-fill var(--refresh-duration) linear 1 both;
+}
+
+.auto-refresh-icon:not(.active) .auto-refresh-sector {
+  background: none;
+  box-shadow: inset 0 0 0 1px rgb(34 197 94 / 18%);
+}
+
+.auto-refresh-icon.loading .auto-refresh-track {
+  opacity: 0.42;
+  border-color: rgb(34 197 94 / 36%);
+}
+
+.auto-refresh-icon.loading .auto-refresh-sector {
+  inset: 2px;
+  background: none;
+  border: 1.5px solid rgb(34 197 94 / 22%);
+  border-top-color: currentColor;
+  border-right-color: currentColor;
+  box-shadow: none;
+  animation: auto-refresh-spin 0.8s linear infinite;
 }
 
 @property --refresh-progress {
@@ -1190,13 +1414,23 @@ function formatReceive(email) {
   }
 }
 
+@keyframes auto-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .result-address {
   border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--el-text-color-primary);
   cursor: pointer;
   font: inherit;
-  padding: 0;
+  padding: 2px 10px;
   max-width: min(520px, 70vw);
   overflow: hidden;
   white-space: nowrap;
@@ -1237,6 +1471,9 @@ function formatReceive(email) {
 .history-list {
   display: grid;
   gap: 4px;
+  max-height: min(280px, calc(100vh - 140px));
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .history-row {
@@ -1400,6 +1637,17 @@ function formatReceive(email) {
   padding: 18px;
 }
 
+.scope-hint {
+  margin: 6px 18px 0;
+  padding: 10px 0 2px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+  color: var(--el-color-danger);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .detail-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1470,10 +1718,6 @@ function formatReceive(email) {
   font-size: 12px;
 }
 
-.detail-loading {
-  padding: 8px 0 4px;
-}
-
 :global(.public-inbox-dialog) {
   max-width: calc(100vw - 24px);
   height: calc(100vh - 48px);
@@ -1538,6 +1782,11 @@ function formatReceive(email) {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
+}
+
+.detail-body-loading {
+  min-height: 240px;
+  padding-top: 8px;
 }
 
 .html-scrollbar {
@@ -1626,24 +1875,48 @@ function formatReceive(email) {
     display: none;
   }
 
-  .mobile-tools-button {
-    width: 36px;
+  .mobile-actions-group {
+    width: 72px;
     height: 36px;
     border: 1px solid var(--el-border-color);
     border-radius: 6px;
     background: var(--el-bg-color);
+    display: inline-flex;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .mobile-action-button {
+    flex: 1 1 0;
+    border: 0;
+    background: transparent;
     color: var(--el-text-color-primary);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
+  }
 
-    &.active,
-    &:hover {
-      color: var(--el-color-primary);
-      border-color: var(--el-color-primary);
-    }
+  .mobile-action-button + .mobile-action-button {
+    border-left: 1px solid var(--el-border-color);
+  }
+
+  .mobile-action-button:hover,
+  .mobile-action-button:active {
+    color: var(--el-color-primary);
+    background: rgb(64 158 255 / 8%);
+  }
+
+  .mobile-action-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+    background: transparent;
+  }
+
+  .mobile-tools-button,
+  .random-email-button {
+    display: none;
   }
 
   .mobile-tools-overlay {
@@ -1661,6 +1934,11 @@ function formatReceive(email) {
   .start-lookup .lookup-control,
   .start-lookup .history-panel {
     grid-column: auto;
+  }
+
+  .lookup-control {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    gap: 6px;
   }
 
   .mail-shell {
@@ -1696,7 +1974,7 @@ function formatReceive(email) {
   }
 
   .lookup-control {
-    grid-template-columns: 38px 38px minmax(0, 1fr) auto;
+    grid-template-columns: 72px minmax(0, 1fr) auto;
   }
 
   .history-floating {
