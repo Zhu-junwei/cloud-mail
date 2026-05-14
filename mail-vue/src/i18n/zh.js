@@ -111,6 +111,7 @@ const zh = {
     regKey: '注册码',
     noCodeFound: '没有任何注册码',
     useHistory: '使用记录',
+    publicInboxShareLink: '分享链接',
     date: '时间',
     roleDesc: '权限身份',
     noSubject: '无主题',

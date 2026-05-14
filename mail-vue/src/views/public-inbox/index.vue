@@ -52,7 +52,7 @@
         <div v-else class="history-empty">{{ $t('publicInboxEmptyHistory') }}</div>
       </aside>
 
-      <section class="search-area" :class="{ compact: !firstLoad }">
+      <section class="search-area">
         <div class="start-lookup">
           <div class="lookup-control">
             <button
@@ -109,9 +109,21 @@
                 </div>
               </template>
             </el-input>
-            <el-button class="open-button" type="primary" :loading="loading" @click="search">
-              {{ $t('publicInboxOpen') }}
-            </el-button>
+            <div class="lookup-actions">
+              <button class="open-button" type="button" :disabled="loading" :title="$t('publicInboxOpen')" :aria-label="$t('publicInboxOpen')" @click="search">
+                <Icon icon="material-symbols:search-rounded" width="18" height="18" />
+              </button>
+              <button
+                  class="share-link-button"
+                  type="button"
+                  :disabled="!shareLinkUrl"
+                  :title="$t('publicInboxShareLink')"
+                  :aria-label="$t('publicInboxShareLink')"
+                  @click="copyShareLink"
+              >
+                <Icon icon="material-symbols:link-rounded" width="18" height="18" />
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -334,6 +346,18 @@ const suffixDisplayMinWidth = computed(() => {
   return `${Math.max(11, longest + 1)}ch`
 })
 
+const shareLinkUrl = computed(() => {
+  const address = getSearchAddress()
+  if (!isEmail(address)) {
+    return ''
+  }
+
+  const url = new URL(window.location.origin)
+  url.pathname = '/public-inbox'
+  url.searchParams.set('email', address)
+  return url.toString()
+})
+
 const newestEmailId = computed(() => {
   return list.value.reduce((max, item) => Math.max(max, item.emailId), latestEmailId.value || 0)
 })
@@ -370,9 +394,6 @@ onMounted(() => {
   }
   if (isEmail(getSearchAddress())) {
     search(initialRouteAddress).finally(() => {
-      if (initialRouteAddress) {
-        router.replace({path: '/public-inbox'})
-      }
       inboxReady.value = true
       autoSearchPaused.value = false
     })
@@ -435,7 +456,6 @@ async function search() {
     }
     currentAddress.value = address
     saveHistory(address)
-    router.replace({path: '/public-inbox', query: {email: address}})
     list.value = normalizeList(data.list)
     total.value = data.total
     latestEmailId.value = data.latestEmail?.emailId || 0
@@ -488,6 +508,19 @@ async function copyCurrentAddress() {
 
   try {
     await navigator.clipboard.writeText(currentAddress.value)
+    ElMessage({message: t('copySuccessMsg'), type: 'success', plain: true})
+  } catch (e) {
+    ElMessage({message: t('copyFailMsg'), type: 'error', plain: true})
+  }
+}
+
+async function copyShareLink() {
+  if (!shareLinkUrl.value) {
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(shareLinkUrl.value)
     ElMessage({message: t('copySuccessMsg'), type: 'success', plain: true})
   } catch (e) {
     ElMessage({message: t('copyFailMsg'), type: 'error', plain: true})
@@ -620,7 +653,7 @@ async function openHistory(address) {
   applyPreviewAddressValue(address, true)
   autoSearchPaused.value = false
   mobileToolsOpen.value = false
-  await search(address)
+  await search()
 }
 
 async function loadMore() {
@@ -822,12 +855,7 @@ function formatReceive(email) {
 }
 
 .search-area {
-  padding-top: 14vh;
-  transition: padding 0.2s ease-in-out;
-}
-
-.search-area.compact {
-  padding-top: 8vh;
+  padding-top: 16px;
 }
 
 .result-area {
@@ -898,6 +926,12 @@ function formatReceive(email) {
   align-items: center;
 }
 
+.lookup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .random-email-button {
   width: 38px;
   height: 38px;
@@ -919,6 +953,51 @@ function formatReceive(email) {
   &:disabled {
     cursor: not-allowed;
     opacity: 0.35;
+  }
+}
+
+.open-button,
+.share-link-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.open-button {
+  border: 1px solid var(--el-border-color);
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+
+  &:hover {
+    color: var(--el-color-primary);
+    border-color: var(--el-color-primary);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+}
+
+.share-link-button {
+  border: 0;
+  background: transparent;
+  color: var(--el-text-color-primary);
+
+  &:hover:not(:disabled) {
+    color: var(--el-color-primary);
+    background: rgb(64 158 255 / 8%);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+    background: transparent;
   }
 }
 
@@ -1540,11 +1619,7 @@ function formatReceive(email) {
   }
 
   .search-area {
-    padding-top: 5vh;
-  }
-
-  .search-area.compact {
-    padding-top: 3vh;
+    padding-top: 12px;
   }
 
   .back-button {
@@ -1621,11 +1696,7 @@ function formatReceive(email) {
   }
 
   .lookup-control {
-    grid-template-columns: 38px 38px minmax(0, 1fr);
-  }
-
-  .open-button {
-    grid-column: 1 / -1;
+    grid-template-columns: 38px 38px minmax(0, 1fr) auto;
   }
 
   .history-floating {

@@ -111,6 +111,7 @@ const en = {
     regKey: 'Invite Code',
     noCodeFound: 'No messages found',
     useHistory: 'Usage History',
+    publicInboxShareLink: 'Share link',
     date: 'Date',
     roleDesc: 'Role',
     noSubject: 'No subject',
