@@ -107,7 +107,7 @@
                 @keyup.enter="search"
             >
               <template #append>
-                <div class="suffix-trigger" :style="{ '--suffix-min-width': suffixDisplayMinWidth }" @click.stop="openSuffixSelect">
+                <div class="suffix-trigger" @click.stop="openSuffixSelect">
                   <el-select
                       ref="suffixSelect"
                       v-model="suffix"
@@ -396,11 +396,6 @@ const publicInboxScopeLabel = computed(() => {
 const autoRefreshInterval = computed(() => {
   const value = Number(settingStore.settings.anonymousReceiveRefresh ?? 10)
   return value > 1 ? value : 10
-})
-
-const suffixDisplayMinWidth = computed(() => {
-  const longest = domainList.value.reduce((max, item) => Math.max(max, String(item).length), 0)
-  return `${Math.max(11, longest + 1)}ch`
 })
 
 const inputAddress = computed(() => getSearchAddress())
@@ -1221,7 +1216,7 @@ function formatReceive(email) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-width: var(--suffix-min-width);
+  width: max-content;
   color: var(--el-text-color-primary);
   cursor: pointer;
 }
@@ -1247,7 +1242,7 @@ function formatReceive(email) {
 .suffix-select {
   position: absolute;
   right: 30px;
-  width: 100px;
+  width: 100%;
   opacity: 0;
   pointer-events: none;
 }
