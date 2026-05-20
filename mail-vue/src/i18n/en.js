@@ -310,6 +310,7 @@ const en = {
     anonymousReceiveLoginLink: 'Open anonymous inbox',
     anonymousReceiveClosed: 'Anonymous inbox is disabled',
     anonymousReceiveBlocked: 'This mailbox is blocked from anonymous access',
+    publicInboxScopeClosed: 'Anonymous inbox is not enabled',
     publicInboxScopeAll: 'Current limit: all emails',
     publicInboxScopeEmpty: 'Current limit: no emails',
     publicInboxScopeCount: 'Current limit: latest {count} emails',

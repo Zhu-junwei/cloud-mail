@@ -310,6 +310,7 @@ const zh = {
     anonymousReceiveLoginLink: '去匿名收件',
     anonymousReceiveClosed: '匿名收件已关闭',
     anonymousReceiveBlocked: '该邮箱禁止匿名访问',
+    publicInboxScopeClosed: '暂未开启匿名邮箱',
     publicInboxScopeAll: '当前限制：全部邮件',
     publicInboxScopeEmpty: '当前限制：不显示邮件',
     publicInboxScopeCount: '当前限制：最近 {count} 封',

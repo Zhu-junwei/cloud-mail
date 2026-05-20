@@ -375,6 +375,10 @@ const anonymousReceivePageSize = computed(() => {
   return anonymousReceiveCount.value
 })
 const publicInboxScopeLabel = computed(() => {
+  if (!anonymousReceiveEnabled.value) {
+    return t('publicInboxScopeClosed')
+  }
+
   const count = anonymousReceiveCount.value
   const days = anonymousReceiveDays.value
 
