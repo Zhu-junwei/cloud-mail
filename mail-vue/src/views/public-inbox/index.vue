@@ -192,7 +192,7 @@
                 </div>
                 <div class="email-text">
                   <span class="email-subject">
-                    <span v-if="item.code" class="code-tag">[{{ $t('codeLabel') }}{{ item.code }}]</span>
+                    <span v-if="item.code" class="code-tag" :title="$t('copyCode')" @click.stop="copyCode(item.code)">[{{ $t('codeLabel') }}<span class="code-value">{{ item.code }}</span>]</span>
                     <span class="subject-text">{{ item.subject || '\u200B' }}</span>
                   </span>
                   <span class="email-content">{{ item.preview || '\u200B' }}</span>
@@ -618,6 +618,41 @@ async function copyShareLink() {
     ElMessage({message: t('copySuccessMsg'), type: 'success', plain: true})
   } catch (e) {
     ElMessage({message: t('copyFailMsg'), type: 'error', plain: true})
+  }
+}
+
+async function copyCode(code) {
+  if (!code) {
+    return
+  }
+
+  try {
+    await writeClipboardText(code)
+    ElMessage({message: t('copySuccessMsg'), type: 'success', plain: true})
+  } catch (e) {
+    ElMessage({message: t('copyFailMsg'), type: 'error', plain: true})
+  }
+}
+
+async function writeClipboardText(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return
+  } catch (error) {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.top = '-9999px'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    textarea.setSelectionRange(0, textarea.value.length)
+    const copied = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    if (!copied) {
+      throw error
+    }
   }
 }
 
@@ -1602,6 +1637,11 @@ function formatReceive(email) {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.code-value {
+  color: var(--el-color-primary);
 }
 
 .email-right {
@@ -1986,12 +2026,12 @@ function formatReceive(email) {
 
   .row-title {
     grid-template-columns: 1fr;
-    gap: 4px;
+    gap: 2px;
     padding-right: 12px;
   }
 
   .email-row {
-    min-height: 70px;
+    min-height: 48px;
   }
 
   .email-sender {
@@ -2003,14 +2043,14 @@ function formatReceive(email) {
   }
 
   .email-text {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
 
     .email-subject {
       padding-left: 0;
     }
 
     .email-content {
-      padding-left: 0;
+      padding-left: 8px;
     }
   }
 
