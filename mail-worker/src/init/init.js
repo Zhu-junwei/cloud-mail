@@ -33,8 +33,26 @@ const dbInit = {
 		await this.v3_2DB(c);
 		await this.v3_3DB(c);
 		await this.v3_4DB(c);
+		await this.v3_5DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v3_5DB(c) {
+		try {
+			await c.env.db.batch([
+				c.env.db.prepare(`
+					CREATE INDEX IF NOT EXISTS idx_email_public_inbox_lookup
+					ON email(to_email COLLATE NOCASE, type, is_del, email_id DESC)
+				`),
+				c.env.db.prepare(`
+					CREATE INDEX IF NOT EXISTS idx_email_public_inbox_time
+					ON email(to_email COLLATE NOCASE, type, is_del, create_time, email_id DESC)
+				`)
+			]);
+		} catch (e) {
+			console.warn(`跳过公开收件箱索引创建：${e.message}`);
+		}
 	},
 
 	async v3_1DB(c) {
