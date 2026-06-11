@@ -29,7 +29,6 @@ const dbInit = {
 		await this.v2_8DB(c);
 		await this.v2_9DB(c);
 		await this.v3_0DB(c);
-		await this.v3_1DB(c);
 		await this.v3_2DB(c);
 		await this.v3_3DB(c);
 		await this.v3_4DB(c);
@@ -52,14 +51,6 @@ const dbInit = {
 			]);
 		} catch (e) {
 			console.warn(`跳过公开收件箱索引创建：${e.message}`);
-		}
-	},
-
-	async v3_1DB(c) {
-		try {
-			await c.env.db.prepare(`ALTER TABLE setting ADD COLUMN login_darken_factor INTEGER NOT NULL DEFAULT 0;`).run();
-		} catch (e) {
-			console.warn(`跳过字段：${e.message}`);
 		}
 	},
 

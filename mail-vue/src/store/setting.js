@@ -6,7 +6,6 @@ export const useSettingStore = defineStore('setting', {
         settings: {
             r2Domain: '',
             loginOpacity: 1.00,
-            loginDarkenFactor: 0,
             anonymousReceive: 0,
             anonymousReceiveCount: 10,
             anonymousReceiveDays: 0,

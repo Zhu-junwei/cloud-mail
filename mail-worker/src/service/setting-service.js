@@ -197,11 +197,6 @@ const settingService = {
 			params.aiCodeFilter = params.aiCodeFilter + '';
 		}
 
-		if (params.loginDarkenFactor !== undefined) {
-			const factor = Number(params.loginDarkenFactor);
-			params.loginDarkenFactor = Number.isNaN(factor) ? 0 : Math.min(1, Math.max(0, factor));
-		}
-
 		if (params.anonymousReceiveCount !== undefined) {
 			const count = Number(params.anonymousReceiveCount);
 			params.anonymousReceiveCount = count === -1 ? -1 : Math.min(Math.max(Number.isNaN(count) ? 10 : count, 0), 50);
@@ -326,7 +321,6 @@ const settingService = {
 			siteKey: settingRow.siteKey,
 			background: settingRow.background,
 			loginOpacity: settingRow.loginOpacity,
-			loginDarkenFactor: settingRow.loginDarkenFactor,
 			domainList: settingRow.loginDomain === 1 && !token ? [] : settingRow.domainList,
 			regKey: settingRow.regKey,
 			regVerifyOpen: settingRow.regVerifyOpen,
